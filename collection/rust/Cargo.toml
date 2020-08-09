@@ -1,0 +1,24 @@
+[package]
+name = "jxmpscare-col"
+version = "0.1.0"
+authors = ["Lukas Seidel"]
+documentation = ""
+edition = "2018"
+include = [
+    "/.gitmodules",
+    "/Cargo.toml",
+    "/README.md",
+    "/src/*",
+]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/pr0me/JXMPscare"
+description = "Rust crate for coverage collection (program trace) for the use with unicornafl"
+
+[dependencies]
+libc = "0.2"
+capstone="0.6.0"
+unicornafl = { path = "/home/pr0me/Documents/code/university/work_sect/fuzz/AFLplusplus/unicorn_mode/unicornafl/bindings/rust", version="1.0.0" }
+
+[build-dependencies]
+build-helper = "0.1"
