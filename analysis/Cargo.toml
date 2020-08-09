@@ -1,0 +1,20 @@
+[package]
+name = "jxmpscare"
+version = "0.1.0"
+authors = ["Lukas Seidel"]
+documentation = ""
+edition = "2018"
+include = [
+    "/.gitmodules",
+    "/Cargo.toml",
+    "/README.md",
+    "/src/*",
+]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/pr0me/JXMPscare"
+description = "Rust program for analyzing taken jumps over multiple execution traces"
+
+[dependencies]
+capstone="0.6.0"
+clap = "2.33.2"
