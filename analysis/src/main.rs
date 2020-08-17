@@ -2,10 +2,11 @@ extern crate clap;
 use clap::{Arg, App, SubCommand};
 use capstone::prelude::*;
 use std::io;
+use std::fs::{self, DirEntry};
 use std::fs::File;
+use std::io::prelude::*;
 use std::io::Read;
 use std::io::BufRead;
-use std::fs::{self, DirEntry};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -23,7 +24,7 @@ fn read_file(filename: &str) -> Result<String, io::Error> {
     Ok(contents)
 }
 
-fn analyze_ARM(binary: &Vec<u8>, trace_dir: &str, arch: &str, offset: u64) {
+fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, arch: &str, offset: u64) {
     let mut cs = Capstone::new()
         .arm()
         .mode(arch::arm::ArchMode::Arm)
@@ -37,7 +38,8 @@ fn analyze_ARM(binary: &Vec<u8>, trace_dir: &str, arch: &str, offset: u64) {
         .build()
         .expect("failed to create Capstone object for thumb mode");
 
-    let jump_map: HashMap<u64, Jump> = HashMap::new();
+    let mut jump_map: HashMap<u64, Jump> = HashMap::new();
+    let mut last_jmp_addr: u64 = 0;
 
     // parse execution traces
     for entry in fs::read_dir(trace_dir).expect("Reading directory contents failed") {
@@ -57,21 +59,43 @@ fn analyze_ARM(binary: &Vec<u8>, trace_dir: &str, arch: &str, offset: u64) {
                         addr -= 1;
                         disas = cs_t.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
                     }
+                    
+                    // check target of last jump
+                    if last_jmp_addr != 0 {
+                        let last_jmp = jump_map.get_mut(&last_jmp_addr).unwrap();
+                        if last_jmp.taken == false && addr == last_jmp.target {
+                            last_jmp.taken = true;
+                        } else if last_jmp.not_taken == false && addr != last_jmp.target {
+                            last_jmp.not_taken = true;
+                        }
+                        println!("{:?}", last_jmp);
+
+                        last_jmp_addr = 0;
+                    }
 
                     let insn = disas.iter().next().unwrap();
-                    if insn.id() == capstone::InsnId(17) {
+                    if insn.id() == capstone::InsnId(17) { // branch
                         println!("[*] branch");
                         let mnemonic = insn.mnemonic().unwrap();
 
-                        if mnemonic.len() > 1 {
+                        // conditional branch
+                        if mnemonic.len() > 2 && mnemonic != "blx" && &mnemonic[1..2] != "." {
+                            let t = u64::from_str_radix(&disas
+                                .to_string()
+                                .split("#0x")
+                                .nth(1).unwrap()
+                                .trim(), 16).unwrap();
+                            println!("{}", t);
+
                             let new_jmp = Jump {
                                 taken: false, 
                                 not_taken: false, 
                                 condition: String::from(&mnemonic[1..3]), 
-                                target: 0x0
+                                target: t
                             };
-                            println!("{:?}", new_jmp);
-                            
+
+                            jump_map.insert(addr, new_jmp);
+                            last_jmp_addr = addr;
                         }
                         
                     }
@@ -80,7 +104,21 @@ fn analyze_ARM(binary: &Vec<u8>, trace_dir: &str, arch: &str, offset: u64) {
         }
     }
 
-    // find uni-directional jumps 
+    // generate output file
+    let mut file = File::create("./jxmp_analysis.out".to_string()).expect("Failed to create file");
+    for (k, v) in jump_map.iter() {
+        println!("{:?}", v);
+        if v.taken != v.not_taken {
+            let mut s: &str = "";
+            if v.taken {
+                s = "ALWAYS_TAKEN";
+            } else {
+                s = "NEVER_TAKEN";
+            }
+            let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
+            file.write(line.as_bytes());
+        }
+    }
 }
 
 
@@ -165,7 +203,7 @@ fn main() {
     f.read_to_end(&mut blob).expect("Failed to read input file.");
 
     if arch == "ARM" {
-        analyze_ARM(&blob, trace_path, arch, base);
+        analyze_arm(&blob, trace_path, arch, base);
     } else {
         analyze_x86(&blob, trace_path, arch, base);
     }
