@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::io::Read;
 use std::io::BufRead;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct Jump {
@@ -38,6 +38,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
 
     let mut num_traces = 0;
     let mut num_jumps = 0;
+    let mut addr_blacklist = HashSet::new();
 
     println!("    Parsing Execution Traces");
 
@@ -57,7 +58,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
                     if addr % 2 == 0 {
                         disas = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
                     } else {
-                        // Requirement: addresses of instructions in thumb mode appear with LSB==1 in trace
+                        // Requirement: trace addresses of instructions in thumb mode have the LSB set to 1
                         addr -= 1;
                         disas = cs_t.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
                     }
@@ -74,7 +75,29 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
                         last_jmp_addr = 0;
                     }
 
-                    let insn = disas.iter().next().unwrap();
+                    let insn = disas.iter().next();
+                    let insn = match insn {
+                        Some(i) => i,
+                        None => {
+                            if addr_blacklist.contains(&addr) {
+                                continue;
+                            } else {
+                                println!("[!] Failed to disassemble at address {:#X}.\n    Add to blacklist? [Y]es/[N]o/[A]bort", addr);
+                                let mut input = String::new();
+                                std::io::stdin().read_line(&mut input).expect("failed to read user input");
+                                input = input.to_lowercase();
+                                if &input[0..1] == "a" {
+                                    panic!();
+                                } else if &input[0..1] == "y" {
+                                    addr_blacklist.insert(addr);
+                                    continue;
+                                } else {
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+
                     if insn.id() == capstone::InsnId(17) { // branch
                         num_jumps += 1;
                         let mnemonic = insn.mnemonic().unwrap();
@@ -86,15 +109,18 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
                                 .split("#0x")
                                 .nth(1).unwrap()
                                 .trim(), 16).unwrap();
+                            
+                            if !jump_map.contains_key(&addr) {
+                                let new_jmp = Jump {
+                                    taken: false, 
+                                    not_taken: false, 
+                                    condition: String::from(&mnemonic[1..3]), 
+                                    target: t
+                                };
+    
+                                jump_map.insert(addr, new_jmp);
+                            }
 
-                            let new_jmp = Jump {
-                                taken: false, 
-                                not_taken: false, 
-                                condition: String::from(&mnemonic[1..3]), 
-                                target: t
-                            };
-
-                            jump_map.insert(addr, new_jmp);
                             last_jmp_addr = addr;
                         }
                         
@@ -103,8 +129,8 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
             }
         }
     }
+    
     println!("    Generating Output File");
-
     let mut num_uni = 0;
     let mut file = File::create("./jxmp_analysis.out".to_string()).expect("Failed to create file");
     for (k, v) in jump_map.iter() {
@@ -121,8 +147,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
     Execution Traces:      {}
     Total Jumps:           {}
     Unique Jumps:          {}
-    Uni-directional Jumps: {}",
-            num_traces, num_jumps, jump_map.len(), num_uni);
+    Uni-directional Jumps: {}", num_traces, num_jumps, jump_map.len(), num_uni);
 }
 
 
