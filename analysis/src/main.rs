@@ -7,6 +7,7 @@ use std::io::prelude::*;
 use std::io::Read;
 use std::io::BufRead;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct Jump {
@@ -19,6 +20,7 @@ pub struct Jump {
 
 fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
     println!("[+] Starting Analysis");
+    let now = Instant::now();
 
     let cs = Capstone::new()
         .arm()
@@ -82,7 +84,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
                             if addr_blacklist.contains(&addr) {
                                 continue;
                             } else {
-                                println!("[!] Failed to disassemble at address {:#X}.\n    Add to blacklist? [Y]es/[N]o/[A]bort", addr);
+                                println!("[!] Failed to disassemble at address {:#x}\n    Add to blacklist? [Y]es/[N]o/[A]bort", addr);
                                 let mut input = String::new();
                                 std::io::stdin().read_line(&mut input).expect("failed to read user input");
                                 input = input.to_lowercase();
@@ -117,7 +119,6 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
                                     condition: String::from(&mnemonic[1..3]), 
                                     target: t
                                 };
-    
                                 jump_map.insert(addr, new_jmp);
                             }
 
@@ -142,12 +143,12 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
         }
     }
     
-    println!("[-] Finished Analysis
+    println!("[-] Finished Analysis in {}s
 [*] Summary:
     Execution Traces:      {}
     Total Jumps:           {}
     Unique Jumps:          {}
-    Uni-directional Jumps: {}", num_traces, num_jumps, jump_map.len(), num_uni);
+    Uni-directional Jumps: {}", now.elapsed().as_secs(), num_traces, num_jumps, jump_map.len(), num_uni);
 }
 
 
