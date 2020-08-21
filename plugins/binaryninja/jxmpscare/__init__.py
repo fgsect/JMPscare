@@ -24,6 +24,10 @@ class TableModel(QAbstractTableModel):
             'Taken'
         ]
 
+        self._last_sort = 0
+        self._last_sort_order = QtCore.Qt.AscendingOrder
+
+
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if role == QtCore.Qt.DisplayRole:
             column = index.column()
@@ -44,6 +48,14 @@ class TableModel(QAbstractTableModel):
 
         elif role == QtCore.Qt.TextAlignmentRole:
             return QtCore.Qt.AlignCenter
+
+    
+    def sort(self, column, sort_order):
+        self._data.sort(key=lambda x: x[column], reverse=sort_order)
+        self.layoutChanged.emit()
+
+        self._last_sort = column
+        self._last_sort_order = sort_order
 
 
     def headerData(self, column, orientation, role=QtCore.Qt.DisplayRole):
@@ -82,10 +94,12 @@ class JumpOverview(QWidget, DockContextHandler):
         self.table = QTableView()
         self.table.setFont(font)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSortingEnabled(True)
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # sorting 
+        self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSortIndicator(0, QtCore.Qt.AscendingOrder)
 
         data = []
