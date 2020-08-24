@@ -18,7 +18,7 @@ pub struct Jump {
 }
 
 
-fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
+fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
     println!("[+] Starting Analysis");
     let now = Instant::now();
 
@@ -133,7 +133,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
     
     println!("    Generating Output File");
     let mut num_uni = 0;
-    let mut file = File::create("./jxmp_analysis.out".to_string()).expect("Failed to create file");
+    let mut file = File::create(output.to_string()).expect("Failed to create file");
     for (k, v) in jump_map.iter() {
         if v.taken != v.not_taken {
             num_uni += 1;
@@ -200,6 +200,13 @@ fn main() {
                                .help("Sets path to directory containing collected traces")
                                .required(true)
                                .takes_value(true))
+                          .arg(Arg::with_name("output")
+                               .short("o")
+                               .long("traces")
+                               .value_name("OUT")
+                               .help("Specifies name of output file")
+                               .required(false)
+                               .takes_value(true))
                           .arg(Arg::with_name("arch")
                                .short("a")
                                .long("arch")
@@ -223,6 +230,7 @@ fn main() {
                           .get_matches();
 
     let trace_path = options.value_of("traces").unwrap();
+    let out = options.value_of("output").unwrap_or("jxmp_analysis.out");
     let arch = options.value_of("arch").unwrap_or("x86_64");
     let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
         .expect("Failed to parse base offset");
@@ -232,7 +240,7 @@ fn main() {
     f.read_to_end(&mut blob).expect("Failed to read input file");
 
     if arch == "ARM" {
-        analyze_arm(&blob, trace_path, base);
+        analyze_arm(&blob, trace_path, base, out);
     } else {
         analyze_x86(&blob, trace_path, base);
     }
