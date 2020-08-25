@@ -144,7 +144,7 @@ class JumpOverview(QWidget, DockContextHandler):
                         self.model._patched.append(addr)
                     else:
                         self.model._patched.remove(addr)
-                    self.model.data(i, role=QtCore.Qt.BackgroundRole)
+                    self.model.data(rows[i], role=QtCore.Qt.BackgroundRole)
                 else:
                     interaction.show_message_box("Patching Error", 
                         "This architecture does not seem to support auto-patching yet.",
