@@ -17,6 +17,22 @@ pub struct Jump {
     target: u64,
 }
 
+fn generate_output(map: &HashMap<u64, Jump>, file_name: &str) -> u32 {
+    println!("    Generating Output File");
+    let mut num_uni = 0;
+    let mut file = File::create(file_name.to_string()).expect("Failed to create file");
+    for (k, v) in map.iter() {
+        if v.taken != v.not_taken {
+            num_uni += 1;
+            let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
+            let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
+            file.write(line.as_bytes()).expect("Failed to write to file");
+        }
+    }
+
+    return num_uni;
+}
+
 
 fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
     println!("[+] Starting Analysis");
@@ -131,17 +147,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
         }
     }
     
-    println!("    Generating Output File");
-    let mut num_uni = 0;
-    let mut file = File::create(output.to_string()).expect("Failed to create file");
-    for (k, v) in jump_map.iter() {
-        if v.taken != v.not_taken {
-            num_uni += 1;
-            let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
-            let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
-            file.write(line.as_bytes()).expect("Failed to write to file");
-        }
-    }
+    let num_uni = generate_output(&jump_map, output);
     
     println!("[-] Finished Analysis in {}s
 [*] Summary:
@@ -152,7 +158,10 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
 }
 
 
-fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
+fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
+    println!("[+] Starting Analysis");
+    let now = Instant::now();
+
     let cs = Capstone::new()
         .x86()
         .mode(arch::x86::ArchMode::Mode64)
@@ -160,7 +169,14 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
         .build()
         .expect("Failed to create Capstone object for x86_64");
 
-    let jump_map: HashMap<u64, Jump> = HashMap::new();
+    let mut jump_map: HashMap<u64, Jump> = HashMap::new();
+    let mut last_jmp_addr: u64 = 0;
+
+    let mut num_traces = 0;
+    let mut num_jumps = 0;
+    let mut addr_blacklist = HashSet::new();
+
+    println!("    Parsing Execution Traces");
 
     // parse execution traces
     for entry in fs::read_dir(trace_dir).expect("Reading directory contents failed") {
@@ -169,22 +185,85 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) {
         if !path.is_dir() {
             let curr_file = path.to_str().unwrap();
             let fd = File::open(curr_file).expect("Failed to open file");
+            num_traces += 1;
+
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
-                    let mut addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let mut insn: capstone::Instructions;
-                    insn = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
+                    let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
+                    let disas = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
                     
-                    if insn.iter().next().unwrap().id() == capstone::InsnId(17) {
-                        println!("We've got a branch");
-                        println!("{}", insn);
+                    // check target of last jump
+                    if last_jmp_addr != 0 {
+                        let last_jmp = jump_map.get_mut(&last_jmp_addr).unwrap();
+                        if last_jmp.taken == false && addr == last_jmp.target {
+                            last_jmp.taken = true;
+                        } else if last_jmp.not_taken == false && addr != last_jmp.target {
+                            last_jmp.not_taken = true;
+                        }
+
+                        last_jmp_addr = 0;
+                    }
+
+                    let insn = disas.iter().next();
+                    let insn = match insn {
+                        Some(i) => i,
+                        None => {
+                            if addr_blacklist.contains(&addr) {
+                                continue;
+                            } else {
+                                println!("[!] Failed to disassemble at address {:#x}\n    Add to blacklist? [Y]es/[N]o/[A]bort", addr);
+                                let mut input = String::new();
+                                std::io::stdin().read_line(&mut input).expect("failed to read user input");
+                                input = input.to_lowercase();
+                                if &input[0..1] == "a" {
+                                    panic!();
+                                } else if &input[0..1] == "y" {
+                                    addr_blacklist.insert(addr);
+                                    continue;
+                                } else {
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+                    
+                    if insn.id().0 >= 253 && insn.id().0 <= 270  { // branch
+                        num_jumps += 1;
+                        let mnemonic = insn.mnemonic().unwrap();
+
+                        // conditional branch
+                        if mnemonic != "jmp" {
+                            let t = u64::from_str_radix(insn.op_str().unwrap()
+                                .split("0x")
+                                .nth(1).unwrap()
+                                .trim(), 16).unwrap();
+                            
+                            if !jump_map.contains_key(&addr) {
+                                let new_jmp = Jump {
+                                    taken: false, 
+                                    not_taken: false, 
+                                    condition: String::from(mnemonic.split("j").nth(1).unwrap()), 
+                                    target: t
+                                };
+                                jump_map.insert(addr, new_jmp);
+                            }
+
+                            last_jmp_addr = addr;
+                        }
                     }
                 }
             }
         }
     }
-
-    // find uni-directional jumps 
+    
+    let num_uni = generate_output(&jump_map, output);
+    
+    println!("[-] Finished Analysis in {}s
+[*] Summary:
+    Execution Traces:      {}
+    Total Jumps:           {}
+    Unique Jumps:          {}
+    Uni-directional Jumps: {}", now.elapsed().as_secs(), num_traces, num_jumps, jump_map.len(), num_uni);
 }
 
 
@@ -242,7 +321,7 @@ fn main() {
     if arch == "ARM" {
         analyze_arm(&blob, trace_path, base, out);
     } else {
-        analyze_x86(&blob, trace_path, base);
+        analyze_x86(&blob, trace_path, base, out);
     }
     
 }
