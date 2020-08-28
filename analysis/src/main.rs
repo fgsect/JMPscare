@@ -56,7 +56,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
 
     let mut num_traces = 0;
     let mut num_jumps = 0;
-    let mut addr_blacklist = HashSet::new();
+    let mut ignore_list = HashSet::new();
 
     println!("    Parsing Execution Traces");
 
@@ -97,17 +97,17 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
                     let insn = match insn {
                         Some(i) => i,
                         None => {
-                            if addr_blacklist.contains(&addr) {
+                            if ignore_list.contains(&addr) {
                                 continue;
                             } else {
-                                println!("[!] Failed to disassemble at address {:#x}\n    Add to blacklist? [Y]es/[N]o/[A]bort", addr);
+                                println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
                                 let mut input = String::new();
                                 std::io::stdin().read_line(&mut input).expect("failed to read user input");
                                 input = input.to_lowercase();
                                 if &input[0..1] == "a" {
                                     panic!();
                                 } else if &input[0..1] == "y" {
-                                    addr_blacklist.insert(addr);
+                                    ignore_list.insert(addr);
                                     continue;
                                 } else {
                                     continue;
@@ -174,7 +174,7 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
 
     let mut num_traces = 0;
     let mut num_jumps = 0;
-    let mut addr_blacklist = HashSet::new();
+    let mut ignore_list = HashSet::new();
 
     println!("    Parsing Execution Traces");
 
@@ -208,17 +208,17 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
                     let insn = match insn {
                         Some(i) => i,
                         None => {
-                            if addr_blacklist.contains(&addr) {
+                            if ignore_list.contains(&addr) {
                                 continue;
                             } else {
-                                println!("[!] Failed to disassemble at address {:#x}\n    Add to blacklist? [Y]es/[N]o/[A]bort", addr);
+                                println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
                                 let mut input = String::new();
                                 std::io::stdin().read_line(&mut input).expect("failed to read user input");
                                 input = input.to_lowercase();
                                 if &input[0..1] == "a" {
                                     panic!();
                                 } else if &input[0..1] == "y" {
-                                    addr_blacklist.insert(addr);
+                                    ignore_list.insert(addr);
                                     continue;
                                 } else {
                                     continue;
