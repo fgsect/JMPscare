@@ -296,8 +296,7 @@ fn main() {
                                .short("b")
                                .long("base")
                                .value_name("OFFSET")
-                               .help("Sets load address offset. I.e. if the address in a trace is 0x8ffff and the offset is 0x10000, the offset into the 
-                                      binary will be 0x7ffff.")
+                               .help("Sets load address offset. I.e. if the address in a trace is 0x8ffff and the offset is 0x10000, the offset into the binary will be 0x7ffff")
                                .takes_value(true))
                           .arg(Arg::with_name("BINARY")
                                .help("Sets path to original binary the traces were taken from")

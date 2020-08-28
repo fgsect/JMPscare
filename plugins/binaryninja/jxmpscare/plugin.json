@@ -1,8 +1,8 @@
 {
 	"pluginmetadataversion" : 2,
 	"name": "JXMPscare",
-	"type": ["core", "ui", "architecture", "binaryview", "helper"],
-	"api": ["python2", "python3"],
+	"type": ["core", "ui", "binaryview", "helper"],
+	"api": ["python3"],
 	"description": "Visualizer to find uni-directional jumps.",
 	"longdescription": "This plugin offers visualization and patching capabilities for the JXMPscare analysis tool, finding jumps which are always/never taken over multiple execution traces.",
 	"license": {
