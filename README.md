@@ -7,7 +7,7 @@ This repository includes the following components:
 * Analysis
     * tool to analyze multiple execution traces in order to find conditionals jumps which are always/never taken
     * works on any simple execution trace (file with one address per line)
-    * supports x86_64 and ARM
+    * supports x86_64, ARM and MIPS32
 * Plugins
     * Binary Ninja plugin to visualize analysis results
         * concise overview of road block jumps
