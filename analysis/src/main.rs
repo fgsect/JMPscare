@@ -15,6 +15,23 @@ pub struct Jump {
     not_taken: bool,
     condition: String,
     target: u64,
+    insn_size: u8,
+}
+
+#[derive(Debug)]
+pub struct Summary {
+    time: u64,
+    num_traces: u64, 
+    total_jumps: u64,
+    unique_jumps: u64,
+    jumps: HashMap<u64, Jump>,
+}
+
+
+#[derive(Debug, Clone, Copy)]
+pub struct BasicBlock {
+    entry: u64,
+    exit: u64,
 }
 
 const MIPS_BRANCHES: [u32; 46] = [
@@ -66,24 +83,35 @@ const MIPS_BRANCHES: [u32; 46] = [
     arch::mips::MipsInsn::MIPS_INS_BNE as u32
 ];
 
-fn generate_output(map: &HashMap<u64, Jump>, file_name: &str) -> u32 {
+// write analysis report to file, to be parsed by JXMPscare disassembler plugins
+fn generate_output(map: &HashMap<u64, Jump>, file_name: &str) {
     println!("    Generating Output File");
-    let mut num_uni = 0;
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
     for (k, v) in map.iter() {
-        if v.taken != v.not_taken {
-            num_uni += 1;
-            let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
-            let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
-            file.write(line.as_bytes()).expect("Failed to write to file");
-        }
+        let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
+        let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
+        file.write(line.as_bytes()).expect("Failed to write to file");
     }
-
-    return num_uni;
 }
 
 
-fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
+fn find_ud_jumps(jumps: &mut HashMap<u64, Jump>) {
+    jumps.retain(|_k, v| {
+        v.taken != v.not_taken
+    })
+}
+
+
+// reduce noise (check if basic block behind uni-directional jump has coverage)
+fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock>) {
+    jumps.retain(|k, v| {
+        let not_visited = if v.taken { *k + v.insn_size as u64 } else { v.target };
+        !blocks.contains_key(&not_visited)
+    })
+}
+
+
+fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
     println!("[+] Starting analysis of ARM trace");
     let now = Instant::now();
 
@@ -101,7 +129,10 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
         .expect("failed to create Capstone object for thumb mode");
 
     let mut jump_map: HashMap<u64, Jump> = HashMap::new();
+    let mut bb_bucket: HashMap<u64, BasicBlock> = HashMap::new();
     let mut last_jmp_addr: u64 = 0;
+    let mut curr_bb: u64 = 0;
+
 
     let mut num_traces = 0;
     let mut num_jumps = 0;
@@ -121,6 +152,17 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let mut addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
+
+                    // try to get basic block for current addr or create new BasicBlock if none is set
+                    if curr_bb == 0 {
+                        let exists: bool = bb_bucket.contains_key(&addr); 
+                        if exists {
+                            curr_bb = bb_bucket.get(&addr).unwrap().entry;
+                        } else {
+                            curr_bb = addr - 1;
+                        }
+                    }
+
                     let disas: capstone::Instructions;
                     if addr % 2 == 0 {
                         disas = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
@@ -182,7 +224,8 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
                                     taken: false, 
                                     not_taken: false, 
                                     condition: String::from(&mnemonic[1..3]), 
-                                    target: t
+                                    target: t,
+                                    insn_size: insn.bytes().len() as u8
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -191,23 +234,39 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
                         }
                         
                     }
+                    
+                    // close basic block on jump
+                    if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) || // BL, BX, BXL, BXJ, B
+                       insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) { // CBNZ, CBZ, POP
+                        let new_bb = BasicBlock {
+                            entry: curr_bb,
+                            exit: addr
+                        };
+                        bb_bucket.insert(curr_bb, new_bb);
+                        curr_bb = 0;
+                    }
                 }
             }
         }
     }
+
+    let num_uniq_jumps = jump_map.len() as u64;
+    find_ud_jumps(&mut jump_map);
+    check_bb_cov(&mut jump_map, &bb_bucket);
     
-    let num_uni = generate_output(&jump_map, output);
-    
-    println!("[-] Finished Analysis in {}s
-[*] Summary:
-    Execution Traces:      {}
-    Total Jumps:           {}
-    Unique Jumps:          {}
-    Uni-directional Jumps: {}", now.elapsed().as_secs(), num_traces, num_jumps, jump_map.len(), num_uni);
+    let result = Summary {
+        time: now.elapsed().as_secs(),
+        num_traces: num_traces, 
+        total_jumps: num_jumps,
+        unique_jumps: num_uniq_jumps,
+        jumps: jump_map,
+    };
+
+    return result;
 }
 
 
-fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
+fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
     println!("[+] Starting analysis of x86_64 trace");
     let now = Instant::now();
 
@@ -292,7 +351,8 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
                                     taken: false, 
                                     not_taken: false, 
                                     condition: String::from(mnemonic.split("j").nth(1).unwrap()), 
-                                    target: t
+                                    target: t,
+                                    insn_size: insn.bytes().len() as u8
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -305,18 +365,21 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
         }
     }
     
-    let num_uni = generate_output(&jump_map, output);
-    
-    println!("[-] Finished Analysis in {}s
-[*] Summary:
-    Execution Traces:      {}
-    Total Jumps:           {}
-    Unique Jumps:          {}
-    Uni-directional Jumps: {}", now.elapsed().as_secs(), num_traces, num_jumps, jump_map.len(), num_uni);
+    let num_uniq_jumps = jump_map.len() as u64;
+
+    let result = Summary {
+        time: now.elapsed().as_secs(),
+        num_traces: num_traces, 
+        total_jumps: num_jumps,
+        unique_jumps: num_uniq_jumps,
+        jumps: jump_map,
+    };
+
+    return result;
 }
 
 
-fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
+fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
     println!("[+] Starting analysis of MIPS trace");
     let now = Instant::now();
 
@@ -409,7 +472,8 @@ fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
                                 taken: false,
                                 not_taken: false,
                                 condition: String::from(c),
-                                target: t
+                                target: t,
+                                insn_size: insn.bytes().len() as u8
                             };
                             jump_map.insert(addr, new_jmp);
                         }
@@ -421,14 +485,17 @@ fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, offset: u64, output: &str) {
         }
     }
 
-    let num_uni = generate_output(&jump_map, output);
+    let num_uniq_jumps = jump_map.len() as u64;
 
-    println!("[-] Finished Analysis in {}s
-[*] Summary:
-    Execution Traces:      {}
-    Total Jumps:           {}
-    Unique Jumps:          {}
-    Uni-directional Jumps: {}", now.elapsed().as_secs(), num_traces, num_jumps, jump_map.len(), num_uni);
+    let result = Summary {
+        time: now.elapsed().as_secs(),
+        num_traces: num_traces, 
+        total_jumps: num_jumps,
+        unique_jumps: num_uniq_jumps,
+        jumps: jump_map,
+    };
+
+    return result;
 }
 
 
@@ -482,12 +549,22 @@ fn main() {
     let mut blob = Vec::new();
     f.read_to_end(&mut blob).expect("Failed to read input file");
 
+    let r: Summary;
     if arch == "ARM" {
-        analyze_arm(&blob, trace_path, base, out);
+        r = analyze_arm(&blob, trace_path, base);
     } else if arch == "MIPS" {
-        analyze_mips(&blob, trace_path, base, out);
+        r = analyze_mips(&blob, trace_path, base);
     } else {
-        analyze_x86(&blob, trace_path, base, out);
+        r = analyze_x86(&blob, trace_path, base);
     }
+
+    generate_output(&r.jumps, out);
+    
+    println!("[-] Finished Analysis in {}s
+[*] Summary:
+    Execution Traces:         {}
+    Total conditional Jumps:  {}
+    Unique conditional Jumps: {}
+    Uni-directional Jumps:    {}", r.time, r.num_traces, r.total_jumps, r.unique_jumps, &r.jumps.len());
     
 }
