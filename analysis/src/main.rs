@@ -19,6 +19,12 @@ pub struct Jump {
 }
 
 #[derive(Debug)]
+pub struct BasicBlock {
+    entry: u64,
+    exit: u64,
+}
+
+#[derive(Debug)]
 pub struct Summary {
     time: u64,
     num_traces: u64, 
@@ -27,12 +33,13 @@ pub struct Summary {
     jumps: HashMap<u64, Jump>,
 }
 
-
-#[derive(Debug, Clone, Copy)]
-pub struct BasicBlock {
-    entry: u64,
-    exit: u64,
+#[derive(Debug)]
+pub struct AnalysisOptions {
+    offset: u64,
+    verbosity_lvl: u8,
+    skip_warnings: bool,
 }
+
 
 const MIPS_BRANCHES: [u32; 46] = [
     arch::mips::MipsInsn::MIPS_INS_BEQ as u32,
@@ -111,7 +118,7 @@ fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock
 }
 
 
-fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
+fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summary {
     println!("[+] Starting analysis of ARM trace");
     let now = Instant::now();
 
@@ -165,11 +172,11 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
 
                     let disas: capstone::Instructions;
                     if addr % 2 == 0 {
-                        disas = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
+                        disas = cs.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
                     } else {
                         // Requirement: trace addresses of instructions in thumb mode have the LSB set to 1
                         addr -= 1;
-                        disas = cs_t.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
+                        disas = cs_t.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
                     }
                     
                     // check target of last jump
@@ -191,17 +198,22 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
                             if ignore_list.contains(&addr) {
                                 continue;
                             } else {
-                                println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
-                                let mut input = String::new();
-                                std::io::stdin().read_line(&mut input).expect("failed to read user input");
-                                input = input.to_lowercase();
-                                if &input[0..1] == "a" {
-                                    panic!();
-                                } else if &input[0..1] == "y" {
+                                if opts.skip_warnings {
                                     ignore_list.insert(addr);
                                     continue;
                                 } else {
-                                    continue;
+                                    println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
+                                    let mut input = String::new();
+                                    std::io::stdin().read_line(&mut input).expect("failed to read user input");
+                                    input = input.to_lowercase();
+                                    if &input[0..1] == "a" {
+                                        panic!();
+                                    } else if &input[0..1] == "y" {
+                                        ignore_list.insert(addr);
+                                        continue;
+                                    } else {
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -266,7 +278,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
 }
 
 
-fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
+fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summary {
     println!("[+] Starting analysis of x86_64 trace");
     let now = Instant::now();
 
@@ -298,7 +310,7 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
+                    let disas = cs.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
                     
                     // check target of last jump
                     if last_jmp_addr != 0 {
@@ -379,7 +391,7 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
 }
 
 
-fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
+fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summary {
     println!("[+] Starting analysis of MIPS trace");
     let now = Instant::now();
 
@@ -411,7 +423,7 @@ fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, offset: u64) -> Summary {
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs.disasm_count(&binary[(addr - offset) as usize..], addr, 1).unwrap();
+                    let disas = cs.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
 
                     // check target of last jump
                     if last_jmp_addr != 0 {
@@ -534,8 +546,12 @@ fn main() {
                                .help("Sets path to original binary the traces were taken from")
                                .required(true)
                                .index(1))
-                          .arg(Arg::with_name("v")
+                          .arg(Arg::with_name("skip_warnings")
+                               .short("y")
+                               .help("Skip all disassembler warnings"))
+                          .arg(Arg::with_name("verbose")
                                .short("v")
+                               .multiple(true)
                                .help("Show verbose output"))
                           .get_matches();
 
@@ -545,17 +561,23 @@ fn main() {
     let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
         .expect("Failed to parse base offset");
 
+    let opts = AnalysisOptions {
+        offset: base,
+        verbosity_lvl: options.occurrences_of("verbose") as u8,
+        skip_warnings: options.is_present("skip_warnings")
+    };
+
     let mut f = File::open(options.value_of("BINARY").unwrap()).expect("Failed to open input file");
     let mut blob = Vec::new();
     f.read_to_end(&mut blob).expect("Failed to read input file");
 
     let r: Summary;
     if arch == "ARM" {
-        r = analyze_arm(&blob, trace_path, base);
+        r = analyze_arm(&blob, trace_path, opts);
     } else if arch == "MIPS" {
-        r = analyze_mips(&blob, trace_path, base);
+        r = analyze_mips(&blob, trace_path, opts);
     } else {
-        r = analyze_x86(&blob, trace_path, base);
+        r = analyze_x86(&blob, trace_path, opts);
     }
 
     generate_output(&r.jumps, out);
