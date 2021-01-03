@@ -34,10 +34,13 @@ pub struct Summary {
 }
 
 #[derive(Debug)]
-pub struct AnalysisOptions {
+pub struct AnalysisOptions<'a>{
+    binary: Vec<u8>,
     offset: u64,
+    trace_path: &'a str,
     verbosity_lvl: u8,
     skip_warnings: bool,
+    n_jumps: u32,
 }
 
 
@@ -91,10 +94,10 @@ const MIPS_BRANCHES: [u32; 46] = [
 ];
 
 // write analysis report to file, to be parsed by JXMPscare disassembler plugins
-fn generate_output(map: &HashMap<u64, Jump>, file_name: &str) {
+fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
     println!("    Generating Output File");
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
-    for (k, v) in map.iter() {
+    for (k, v) in jumps.iter() {
         let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
         let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
         file.write(line.as_bytes()).expect("Failed to write to file");
@@ -102,6 +105,7 @@ fn generate_output(map: &HashMap<u64, Jump>, file_name: &str) {
 }
 
 
+// filter for uni-directional jumps
 fn find_ud_jumps(jumps: &mut HashMap<u64, Jump>) {
     jumps.retain(|_k, v| {
         v.taken != v.not_taken
@@ -117,8 +121,41 @@ fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock
     })
 }
 
+// traverse n edges to analyze potential new coverage
+fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) {
+    let mut total_insns = 0;
+    for (k, v) in jumps.iter() {
+        // get next uncovered insn
+        let mut i = 0;
+        // traverse edges n times
+        while i < opts.n_jumps {
+            loop {
+                let disas: capstone::Instructions;
+                disas = cs.disasm_count(&opts.binary[(k - opts.offset) as usize..], *k, 1).unwrap();
+            
+                let insn = disas.iter().next();
+                let insn =  match insn {
+                    Some(i) => i,
+                    None => continue
+                };
+                
+                // check whether edge leads to already seen bb, otherwise generate new one
 
-fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summary {
+                total_insns += 1;
+    
+                if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
+                insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) {
+                    i += 1;
+                    // break out completely on POP / B r0, register this info
+                    break;
+                }
+            }
+        }
+    }
+}
+
+
+fn analyze_arm(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting analysis of ARM trace");
     let now = Instant::now();
 
@@ -140,15 +177,12 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
     let mut last_jmp_addr: u64 = 0;
     let mut curr_bb: u64 = 0;
 
-
     let mut num_traces = 0;
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
-
+    
     println!("    Parsing Execution Traces");
-
-    // parse execution traces
-    for entry in fs::read_dir(trace_dir).expect("Reading directory contents failed") {
+    for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
         if !path.is_dir() {
@@ -172,11 +206,11 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
 
                     let disas: capstone::Instructions;
                     if addr % 2 == 0 {
-                        disas = cs.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                        disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
                     } else {
                         // Requirement: trace addresses of instructions in thumb mode have the LSB set to 1
                         addr -= 1;
-                        disas = cs_t.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                        disas = cs_t.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
                     }
                     
                     // check target of last jump
@@ -265,7 +299,9 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
     let num_uniq_jumps = jump_map.len() as u64;
     find_ud_jumps(&mut jump_map);
     check_bb_cov(&mut jump_map, &bb_bucket);
+    check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
     
+
     let result = Summary {
         time: now.elapsed().as_secs(),
         num_traces: num_traces, 
@@ -278,7 +314,7 @@ fn analyze_arm(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
 }
 
 
-fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summary {
+fn analyze_x86(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting analysis of x86_64 trace");
     let now = Instant::now();
 
@@ -299,7 +335,7 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
     println!("    Parsing Execution Traces");
 
     // parse execution traces
-    for entry in fs::read_dir(trace_dir).expect("Reading directory contents failed") {
+    for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
         if !path.is_dir() {
@@ -310,7 +346,7 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                    let disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
                     
                     // check target of last jump
                     if last_jmp_addr != 0 {
@@ -391,7 +427,7 @@ fn analyze_x86(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summ
 }
 
 
-fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Summary {
+fn analyze_mips(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting analysis of MIPS trace");
     let now = Instant::now();
 
@@ -412,7 +448,7 @@ fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Sum
     println!("    Parsing Execution Traces");
 
     // parse execution traces
-    for entry in fs::read_dir(trace_dir).expect("Reading directory contents failed") {
+    for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
         if !path.is_dir() {
@@ -423,7 +459,7 @@ fn analyze_mips(binary: &Vec<u8>, trace_dir: &str, opts: AnalysisOptions) -> Sum
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs.disasm_count(&binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                    let disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
 
                     // check target of last jump
                     if last_jmp_addr != 0 {
@@ -542,6 +578,11 @@ fn main() {
                                .value_name("OFFSET")
                                .help("Sets load address offset. I.e. if the address in a trace is 0x8ffff and the offset is 0x10000, the offset into the binary will be 0x7ffff")
                                .takes_value(true))
+                          .arg(Arg::with_name("n_jumps")
+                               .short("n")
+                               .value_name("N")
+                               .help("Specifies the amount of edges to traverse (i.e. jumps to take) during Potential New Coverage analysis")
+                               .takes_value(true))
                           .arg(Arg::with_name("BINARY")
                                .help("Sets path to original binary the traces were taken from")
                                .required(true)
@@ -555,29 +596,34 @@ fn main() {
                                .help("Show verbose output"))
                           .get_matches();
 
-    let trace_path = options.value_of("traces").unwrap();
     let out = options.value_of("output").unwrap_or("jxmp_analysis.out");
     let arch = options.value_of("arch").unwrap_or("x86_64");
     let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
         .expect("Failed to parse base offset");
 
-    let opts = AnalysisOptions {
-        offset: base,
-        verbosity_lvl: options.occurrences_of("verbose") as u8,
-        skip_warnings: options.is_present("skip_warnings")
-    };
-
     let mut f = File::open(options.value_of("BINARY").unwrap()).expect("Failed to open input file");
     let mut blob = Vec::new();
     f.read_to_end(&mut blob).expect("Failed to read input file");
 
+    let opts = AnalysisOptions {
+        binary: blob,
+        offset: base,
+        trace_path: options.value_of("traces").unwrap(),
+        verbosity_lvl: options.occurrences_of("verbose") as u8,
+        skip_warnings: options.is_present("skip_warnings"),
+        n_jumps: u32::from_str_radix(
+            options.value_of("n_jumps").unwrap_or("3"), 
+            10)
+            .expect("Failed to parse number of jumps")
+    };
+
     let r: Summary;
     if arch == "ARM" {
-        r = analyze_arm(&blob, trace_path, opts);
+        r = analyze_arm(opts);
     } else if arch == "MIPS" {
-        r = analyze_mips(&blob, trace_path, opts);
+        r = analyze_mips(opts);
     } else {
-        r = analyze_x86(&blob, trace_path, opts);
+        r = analyze_x86(opts);
     }
 
     generate_output(&r.jumps, out);

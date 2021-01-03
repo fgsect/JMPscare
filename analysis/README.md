@@ -15,7 +15,7 @@ As parameters, at least the path to the original binary and a directory with inp
 ```
 For further information, please use ```--help```.
 
-## Inpute File Formatting
+## Input File Formatting
 JXMPscare analysis works on simple execution trace files with one address per line. Please note, that for instructions in thumb mode, the LSB is expected to be 1.
 The generation of such files can be achieved e.g. by using the provided collection modules.
 
