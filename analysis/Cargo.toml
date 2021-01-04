@@ -16,5 +16,5 @@ repository = "https://github.com/pr0me/JXMPscare"
 description = "Rust program for analyzing taken jumps over multiple execution traces"
 
 [dependencies]
-capstone="0.6.0"
+capstone="0.7.0"
 clap = "2.33.2"
