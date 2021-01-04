@@ -16,6 +16,7 @@ pub struct Jump {
     condition: String,
     target: u64,
     insn_size: u8,
+    mode: u8,
 }
 
 #[derive(Debug)]
@@ -95,7 +96,7 @@ const MIPS_BRANCHES: [u32; 46] = [
 
 // write analysis report to file, to be parsed by JXMPscare disassembler plugins
 fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
-    println!("    Generating Output File");
+    println!(" >  Generating Output File");
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
     for (k, v) in jumps.iter() {
         let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
@@ -121,42 +122,71 @@ fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock
     })
 }
 
-// traverse n edges to analyze potential new coverage
+
+// traverse basic blocks to analyze potential new coverage
 fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) {
+    println!(" >  Analyze Potential New Coverage");
     let mut total_insns = 0;
     for (k, v) in jumps.iter() {
         // get next uncovered insn
         let mut i = 0;
+        let mut new_edges: Vec<u64> = Vec::new();
+        let mut curr_edges: Vec<u64>;
+        new_edges.push(if v.taken { *k + v.insn_size as u64 } else { v.target });
         // traverse edges n times
-        while i < opts.n_jumps {
-            loop {
-                let disas: capstone::Instructions;
-                disas = cs.disasm_count(&opts.binary[(k - opts.offset) as usize..], *k, 1).unwrap();
-            
-                let insn = disas.iter().next();
-                let insn =  match insn {
-                    Some(i) => i,
-                    None => continue
-                };
-                
-                // check whether edge leads to already seen bb, otherwise generate new one
+        while i <= opts.n_jumps {
+            curr_edges = new_edges.to_owned();
+            new_edges.clear();
+            for edge in curr_edges {
+                let mut next_insn_addr = edge;
+                loop {
+                    let disas: capstone::Instructions;
+                    disas = cs.disasm_count(&opts.binary[(next_insn_addr - opts.offset) as usize..], next_insn_addr, 1).unwrap();
 
-                total_insns += 1;
-    
-                if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
-                insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) {
-                    i += 1;
-                    // break out completely on POP / B r0, register this info
-                    break;
+                    let insn = disas.iter().next();
+                    let insn =  match insn {
+                        Some(i) => i,
+                        None => break
+                    };
+                    
+                    total_insns += 1;
+
+                    // new edge
+                    if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
+                    insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) {
+                        let target_0: u64 = 0;                                          // jump taken
+                        let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
+
+                        // ignore edges to already discovered basic blocks
+                        if !blocks.contains_key(&target_0) {
+                            new_edges.push(target_0);
+                        } 
+                        if !blocks.contains_key(&target_1) {
+                            new_edges.push(target_1);
+                        }
+                        
+                        // add current BB
+                        let new_bb = BasicBlock {
+                            entry: edge,
+                            exit: next_insn_addr
+                        };
+                        blocks.insert(edge, new_bb);
+                        // break out completely on POP / B r0, register this info
+                        break;
+                    }
+
+                    next_insn_addr = next_insn_addr + insn.bytes().len() as u64;
                 }
+
             }
+            i += 1;
         }
     }
 }
 
 
 fn analyze_arm(opts: AnalysisOptions) -> Summary {
-    println!("[+] Starting analysis of ARM trace");
+    println!("[*] Starting analysis of ARM trace");
     let now = Instant::now();
 
     let cs = Capstone::new()
@@ -170,7 +200,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
         .mode(arch::arm::ArchMode::Thumb)
         .detail(true)
         .build()
-        .expect("failed to create Capstone object for thumb mode");
+        .expect("Failed to create Capstone object for thumb mode");
 
     let mut jump_map: HashMap<u64, Jump> = HashMap::new();
     let mut bb_bucket: HashMap<u64, BasicBlock> = HashMap::new();
@@ -181,7 +211,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
     
-    println!("    Parsing Execution Traces");
+    println!(" >  Parsing Execution Traces");
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -193,6 +223,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let mut addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
+                    let mode;
 
                     // try to get basic block for current addr or create new BasicBlock if none is set
                     if curr_bb == 0 {
@@ -207,10 +238,12 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                     let disas: capstone::Instructions;
                     if addr % 2 == 0 {
                         disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                        mode = 0;
                     } else {
                         // Requirement: trace addresses of instructions in thumb mode have the LSB set to 1
                         addr -= 1;
                         disas = cs_t.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                        mode = 1;
                     }
                     
                     // check target of last jump
@@ -271,7 +304,8 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                                     not_taken: false, 
                                     condition: String::from(&mnemonic[1..3]), 
                                     target: t,
-                                    insn_size: insn.bytes().len() as u8
+                                    insn_size: insn.bytes().len() as u8,
+                                    mode: mode
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -299,7 +333,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let num_uniq_jumps = jump_map.len() as u64;
     find_ud_jumps(&mut jump_map);
     check_bb_cov(&mut jump_map, &bb_bucket);
-    check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
+    // check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
     
 
     let result = Summary {
@@ -400,7 +434,8 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
                                     not_taken: false, 
                                     condition: String::from(mnemonic.split("j").nth(1).unwrap()), 
                                     target: t,
-                                    insn_size: insn.bytes().len() as u8
+                                    insn_size: insn.bytes().len() as u8,
+                                    mode: 0
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -521,7 +556,8 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
                                 not_taken: false,
                                 condition: String::from(c),
                                 target: t,
-                                insn_size: insn.bytes().len() as u8
+                                insn_size: insn.bytes().len() as u8,
+                                mode: 0
                             };
                             jump_map.insert(addr, new_jmp);
                         }
@@ -628,7 +664,7 @@ fn main() {
 
     generate_output(&r.jumps, out);
     
-    println!("[-] Finished Analysis in {}s
+    println!("[+] Finished Analysis in {}s
 [*] Summary:
     Execution Traces:         {}
     Total conditional Jumps:  {}
