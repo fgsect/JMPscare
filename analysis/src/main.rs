@@ -125,10 +125,10 @@ fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock
 
 // traverse basic blocks to analyze potential new coverage
 fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) {
-    println!(" >  Analyze Potential New Coverage");
+    println!(" >  Analyzing Potential New Coverage");
     let mut total_insns = 0;
+    let num_basic_blocks = blocks.len();
     for (k, v) in jumps.iter() {
-        // get next uncovered insn
         let mut i = 0;
         let mut new_edges: Vec<u64> = Vec::new();
         let mut curr_edges: Vec<u64>;
@@ -141,6 +141,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                 let mut next_insn_addr = edge;
                 loop {
                     let disas: capstone::Instructions;
+                    println!("{:#x}", next_insn_addr);
                     disas = cs.disasm_count(&opts.binary[(next_insn_addr - opts.offset) as usize..], next_insn_addr, 1).unwrap();
 
                     let insn = disas.iter().next();
@@ -151,18 +152,30 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                     
                     total_insns += 1;
 
-                    // new edge
+                    // edge discovered (i.e. jump/branch)
                     if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
                     insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) {
-                        let target_0: u64 = 0;                                          // jump taken
-                        let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
+                        println!("{}", insn);
+                        let target_0: u64 = u64::from_str_radix(insn.op_str().unwrap()
+                        .split("0x")
+                        .nth(1).unwrap_or("")
+                        .trim(), 16).unwrap_or(u64::MAX); // jump taken
 
-                        // ignore edges to already discovered basic blocks
-                        if !blocks.contains_key(&target_0) {
-                            new_edges.push(target_0);
-                        } 
-                        if !blocks.contains_key(&target_1) {
-                            new_edges.push(target_1);
+                        // check if we have decoded an actual address (and not encountered a register branch or pop)
+                        if target_0 != u64::MAX {
+                            // ignore edges to already discovered basic blocks
+                            if !blocks.contains_key(&target_0) {
+                                new_edges.push(target_0);
+                            }
+                        }
+                        
+                        // if conditional branch, add following instruction as new edge (not-taken case)
+                        let mnemonic = insn.mnemonic().unwrap();
+                        if mnemonic.len() > 2 && mnemonic != "blx" && &mnemonic[1..2] != "." {
+                            let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
+                            if !blocks.contains_key(&target_1) {
+                                new_edges.push(target_1);
+                            }
                         }
                         
                         // add current BB
@@ -171,7 +184,6 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                             exit: next_insn_addr
                         };
                         blocks.insert(edge, new_bb);
-                        // break out completely on POP / B r0, register this info
                         break;
                     }
 
@@ -182,11 +194,14 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
             i += 1;
         }
     }
+
+    let num_new_edges = blocks.len() - num_basic_blocks;
+    println!("New Edges Discovered: {}", num_new_edges);
 }
 
 
 fn analyze_arm(opts: AnalysisOptions) -> Summary {
-    println!("[*] Starting analysis of ARM trace");
+    println!("[*] Starting Analysis of ARM Trace");
     let now = Instant::now();
 
     let cs = Capstone::new()
@@ -211,7 +226,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
     
-    println!(" >  Parsing Execution Traces");
+    println!(" >  Finding Uni-Directional Jumps in {} Execution Traces", fs::read_dir(opts.trace_path).expect("Reading directory contents failed").count());
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -333,7 +348,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let num_uniq_jumps = jump_map.len() as u64;
     find_ud_jumps(&mut jump_map);
     check_bb_cov(&mut jump_map, &bb_bucket);
-    // check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
+    check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
     
 
     let result = Summary {
@@ -349,7 +364,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
 
 
 fn analyze_x86(opts: AnalysisOptions) -> Summary {
-    println!("[+] Starting analysis of x86_64 trace");
+    println!("[+] Starting Analysis of x86_64 Trace");
     let now = Instant::now();
 
     let cs = Capstone::new()
@@ -366,9 +381,7 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
 
-    println!("    Parsing Execution Traces");
-
-    // parse execution traces
+    println!(" >  Finding Uni-Directional Jumps in {} Execution Traces", fs::read_dir(opts.trace_path).expect("Reading directory contents failed").count());
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -463,7 +476,7 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
 
 
 fn analyze_mips(opts: AnalysisOptions) -> Summary {
-    println!("[+] Starting analysis of MIPS trace");
+    println!("[+] Starting Analysis of MIPS Trace");
     let now = Instant::now();
 
     let cs = Capstone::new()
@@ -479,10 +492,8 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
     let mut num_traces = 0;
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
-
-    println!("    Parsing Execution Traces");
-
-    // parse execution traces
+    
+    println!(" >  Finding Uni-Directional Jumps in {} Execution Traces", fs::read_dir(opts.trace_path).expect("Reading directory contents failed").count());
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -617,7 +628,7 @@ fn main() {
                           .arg(Arg::with_name("n_jumps")
                                .short("n")
                                .value_name("N")
-                               .help("Specifies the amount of edges to traverse (i.e. jumps to take) during Potential New Coverage analysis")
+                               .help("Specifies the amount of edges to traverse (i.e. jumps to take) during Potential New Coverage Analysis")
                                .takes_value(true))
                           .arg(Arg::with_name("BINARY")
                                .help("Sets path to original binary the traces were taken from")
