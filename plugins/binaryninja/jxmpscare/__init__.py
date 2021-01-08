@@ -21,7 +21,8 @@ class TableModel(QAbstractTableModel):
         self.COLUMN_HEADERS = [
             'Address',
             'Condition',
-            'Taken'
+            'Taken',
+            'New Cov'
         ]
 
         self._last_sort = 0
@@ -48,6 +49,12 @@ class TableModel(QAbstractTableModel):
 
         elif role == QtCore.Qt.TextAlignmentRole:
             return QtCore.Qt.AlignCenter
+        
+        elif role == QtCore.Qt.ToolTipRole:
+            if index.column() == 3:
+                return "Number of unseen Basic Blocks reachable in N jumps"
+            else:
+                return None
 
     
     def sort(self, column, sort_order):
@@ -206,7 +213,8 @@ class Importer(BackgroundTaskThread):
 
         for x in data:
             x[1] = x[1][10:]
-            x[2] = x[2][:-7] 
+            x[2] = x[2][:-6]
+            x[3] = int(x[3])
         
         dock_handler = DockHandler.getActiveDockHandler()
         table = dock_handler.getDockWidget("JXMPscare Overview").widget()
