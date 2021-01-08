@@ -217,25 +217,25 @@ class Importer(BackgroundTaskThread):
             x[3] = int(x[3])
         
         dock_handler = DockHandler.getActiveDockHandler()
-        table = dock_handler.getDockWidget("JXMPscare Overview").widget()
+        table = dock_handler.getDockWidget("JMPscare Overview").widget()
 
         table.model = TableModel(table.model._data + data)
         table.table.setModel(table.model)
 
-        log.log(1, "[JXMPscare] Successfully imported analysis data")
+        log.log(1, "[JMPscare] Successfully imported analysis data")
         
 
 def import_data(bv):
-    file_name = interaction.get_open_filename_input("Choose JXMPscare analysis output file.")
+    file_name = interaction.get_open_filename_input("Choose JMPscare analysis output file.")
     i = Importer(bv, file_name)
     i.run()
     
 
 def openDockWidget():
     dock_handler = DockHandler.getActiveDockHandler()
-    dock_handler.addDockWidget("JXMPscare Overview", JumpOverview.create_widget, Qt.RightDockWidgetArea, Qt.Vertical, True)
+    dock_handler.addDockWidget("JMPscare Overview", JumpOverview.create_widget, Qt.RightDockWidgetArea, Qt.Vertical, True)
 
 
 # view.always_branch ,  view.convert_to_nop / never_branch, view.invert_branch, save
-PluginCommand.register("JXMPscare\\Import Data", "Import analysis data previously generated with the JXMPscare anlysis tool", import_data)
+PluginCommand.register("JMPscare\\Import Data", "Import analysis data previously generated with the JMPscare anlysis tool", import_data)
 openDockWidget()

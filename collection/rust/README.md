@@ -1,15 +1,15 @@
-# jxmpscare-col (Rust)
+# jmpscare-col (Rust)
 
 Use the crate by including it in your Cargo.toml:
 ```
 [dependencies]
 unicornafl = { path = "/path/to/unicornafl/rust/bindings", version="1.0.0" }
-jxmpscare-col = { path = "/path/to/JXMPscare/collection/rust", version="0.1.0"}
+jmpscare-col = { path = "/path/to/JMPscare/collection/rust", version="0.1.0"}
 ```
 The crate attempts to write files inside a ./cov/ directory, make sure it exists.
 Example usage:
 ```Rust
-use jxmpscare_col::*;
+use jmpscare_col::*;
 
 ...
 

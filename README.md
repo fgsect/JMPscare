@@ -1,5 +1,5 @@
-# JXMPscare
-Toolkit for multi-execution jump coverage analysis: Analyze your fuzzing results by inspecting which jumps you are missing.
+# JMPscare
+Toolkit for multi-execution jump coverage introspection: Analyze your fuzzing results by inspecting which conditional jumps you are missing.
 
 This repository includes the following components:
 * Collection
@@ -10,12 +10,11 @@ This repository includes the following components:
     * supports x86_64, ARM and MIPS32
 * Plugins
     * Binary Ninja plugin to visualize analysis results
-        * concise overview of road block jumps
+        * concise overview of roadblock jumps
         * instruction highlighting
-        * easy navigation and auto-patching
+        * easy navigation and auto-patching (invert branch conditions for _forced execution_)
     * Ghidra plugin WIP
 
-![JXMPscare Binary Ninja Screenshot](./binja.png "Binary Ninja Plugin")
-
-
 For further information, please confer to the READMEs within each directory.
+
+![JMPscare Binary Ninja Screenshot](./binja.png "Binary Ninja Plugin")

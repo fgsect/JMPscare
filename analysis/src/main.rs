@@ -96,7 +96,7 @@ const MIPS_BRANCHES: [u32; 46] = [
     arch::mips::MipsInsn::MIPS_INS_BNE as u32
 ];
 
-// write analysis report to file, to be parsed by JXMPscare disassembler plugins
+// write analysis report to file, to be parsed by JMPscare disassembler plugins
 fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
     println!(" >  Generating Output File");
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
@@ -603,7 +603,7 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
 
 
 fn main() {
-    let options = App::new("JXMPscare")
+    let options = App::new("JMPscare")
                           .version("0.1")
                           .author("Lukas S. <@pr0me>")
                           .about("Analyze jumps taken across multiple execution traces.")
@@ -651,7 +651,7 @@ fn main() {
                                .help("Show verbose output"))
                           .get_matches();
 
-    let out = options.value_of("output").unwrap_or("jxmp_analysis.out");
+    let out = options.value_of("output").unwrap_or("jmp_analysis.out");
     let arch = options.value_of("arch").unwrap_or("x86_64");
     let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
         .expect("Failed to parse base offset");

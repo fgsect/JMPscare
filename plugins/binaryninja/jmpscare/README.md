@@ -1,6 +1,6 @@
-# JXMPscare
+# JMPscare
 
-This plugin provides a tabular overview and visualization of the results of the JXMPscare analysis tool. The tabular overview can be used for quick navigation and automatic patching. 
+This plugin provides a tabular overview and visualization of the results of the JMPscare Analysis tool. The tabular overview can be used for quick navigation and automatic patching. 
 
 ## Installation Instructions
 This plugin has no further dependencies.

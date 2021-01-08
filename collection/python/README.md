@@ -1,4 +1,4 @@
-# jxmpscare-col (Python)
+# jmpscare-col (Python)
 
 Install with 
 ```
@@ -9,7 +9,7 @@ Example usage:
 ```Python
 from unicornafl import *
 from unicornafl.x86_const import *
-from jxmpscare_col import *
+from jmpscare_col import *
 
 traces = []
 

@@ -2,5 +2,5 @@ analysis/target
 analysis/Cargo.lock
 collection/rust/target
 collection/rust/Cargo.lock
-collection/python/jxmpscare_col.egg-info
-collection/python/jxmpscare_col/__pycache__
+collection/python/jmpscare_col.egg-info
+collection/python/jmpscare_col/__pycache__
