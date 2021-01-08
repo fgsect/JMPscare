@@ -17,6 +17,7 @@ pub struct Jump {
     target: u64,
     insn_size: u8,
     mode: u8,
+    pnc: u32,
 }
 
 #[derive(Debug)]
@@ -32,6 +33,7 @@ pub struct Summary {
     total_jumps: u64,
     unique_jumps: u64,
     jumps: HashMap<u64, Jump>,
+    pnc: u32,
 }
 
 #[derive(Debug)]
@@ -100,7 +102,7 @@ fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
     for (k, v) in jumps.iter() {
         let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
-        let line = format!("{:#X} CONDITION_{} {}\n", k, v.condition.to_uppercase(), s);
+        let line = format!("{:#X} CONDITION_{} {} {}\n", k, v.condition.to_uppercase(), s, v.pnc);
         file.write(line.as_bytes()).expect("Failed to write to file");
     }
 }
@@ -124,12 +126,13 @@ fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock
 
 
 // traverse basic blocks to analyze potential new coverage
-fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) {
+fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) 
+    -> u32 {
     println!(" >  Analyzing Potential New Coverage");
-    let mut total_insns = 0;
-    let num_basic_blocks = blocks.len();
-    for (k, v) in jumps.iter() {
+    let mut total_new_blocks = 0;
+    for (k, v) in jumps.iter_mut() {
         let mut i = 0;
+        let mut new_blocks = 1;
         let mut new_edges: Vec<u64> = Vec::new();
         let mut curr_edges: Vec<u64>;
         new_edges.push(if v.taken { *k + v.insn_size as u64 } else { v.target });
@@ -141,7 +144,6 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                 let mut next_insn_addr = edge;
                 loop {
                     let disas: capstone::Instructions;
-                    println!("{:#x}", next_insn_addr);
                     disas = cs.disasm_count(&opts.binary[(next_insn_addr - opts.offset) as usize..], next_insn_addr, 1).unwrap();
 
                     let insn = disas.iter().next();
@@ -150,12 +152,9 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                         None => break
                     };
                     
-                    total_insns += 1;
-
                     // edge discovered (i.e. jump/branch)
                     if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
                     insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) {
-                        println!("{}", insn);
                         let target_0: u64 = u64::from_str_radix(insn.op_str().unwrap()
                         .split("0x")
                         .nth(1).unwrap_or("")
@@ -166,15 +165,17 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                             // ignore edges to already discovered basic blocks
                             if !blocks.contains_key(&target_0) {
                                 new_edges.push(target_0);
+                                new_blocks += 1;
                             }
                         }
-                        
+
                         // if conditional branch, add following instruction as new edge (not-taken case)
                         let mnemonic = insn.mnemonic().unwrap();
                         if mnemonic.len() > 2 && mnemonic != "blx" && &mnemonic[1..2] != "." {
                             let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
                             if !blocks.contains_key(&target_1) {
                                 new_edges.push(target_1);
+                                new_blocks += 1;
                             }
                         }
                         
@@ -193,10 +194,11 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
             }
             i += 1;
         }
+        v.pnc = new_blocks;
+        total_new_blocks += new_blocks;
     }
 
-    let num_new_edges = blocks.len() - num_basic_blocks;
-    println!("New Edges Discovered: {}", num_new_edges);
+    return total_new_blocks;
 }
 
 
@@ -320,7 +322,8 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                                     condition: String::from(&mnemonic[1..3]), 
                                     target: t,
                                     insn_size: insn.bytes().len() as u8,
-                                    mode: mode
+                                    mode: mode,
+                                    pnc: 0
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -348,7 +351,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let num_uniq_jumps = jump_map.len() as u64;
     find_ud_jumps(&mut jump_map);
     check_bb_cov(&mut jump_map, &bb_bucket);
-    check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
+    let pnc = check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
     
 
     let result = Summary {
@@ -357,6 +360,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
+        pnc: pnc,
     };
 
     return result;
@@ -448,7 +452,8 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
                                     condition: String::from(mnemonic.split("j").nth(1).unwrap()), 
                                     target: t,
                                     insn_size: insn.bytes().len() as u8,
-                                    mode: 0
+                                    mode: 0,
+                                    pnc: 0
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -469,6 +474,7 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
+        pnc: 0,
     };
 
     return result;
@@ -568,7 +574,8 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
                                 condition: String::from(c),
                                 target: t,
                                 insn_size: insn.bytes().len() as u8,
-                                mode: 0
+                                mode: 0,
+                                pnc: 0
                             };
                             jump_map.insert(addr, new_jmp);
                         }
@@ -588,6 +595,7 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
+        pnc: 0,
     };
 
     return result;
@@ -647,6 +655,10 @@ fn main() {
     let arch = options.value_of("arch").unwrap_or("x86_64");
     let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
         .expect("Failed to parse base offset");
+    let n_jumps = u32::from_str_radix(
+        options.value_of("n_jumps").unwrap_or("3"), 
+        10)
+        .expect("Failed to parse number of jumps");
 
     let mut f = File::open(options.value_of("BINARY").unwrap()).expect("Failed to open input file");
     let mut blob = Vec::new();
@@ -658,10 +670,7 @@ fn main() {
         trace_path: options.value_of("traces").unwrap(),
         verbosity_lvl: options.occurrences_of("verbose") as u8,
         skip_warnings: options.is_present("skip_warnings"),
-        n_jumps: u32::from_str_radix(
-            options.value_of("n_jumps").unwrap_or("3"), 
-            10)
-            .expect("Failed to parse number of jumps")
+        n_jumps: n_jumps.to_owned()
     };
 
     let r: Summary;
@@ -677,9 +686,10 @@ fn main() {
     
     println!("[+] Finished Analysis in {}s
 [*] Summary:
-    Execution Traces:         {}
-    Total conditional Jumps:  {}
-    Unique conditional Jumps: {}
-    Uni-directional Jumps:    {}", r.time, r.num_traces, r.total_jumps, r.unique_jumps, &r.jumps.len());
+    Execution Traces:              {}
+    Total conditional Jumps:       {}
+    Unique conditional Jumps:      {}
+    Uni-directional Jumps:         {}
+    Potential New Cov (depth: {}):  {}", r.time, r.num_traces, r.total_jumps, r.unique_jumps, &r.jumps.len(), n_jumps, r.pnc);
     
 }
