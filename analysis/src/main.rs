@@ -20,7 +20,7 @@ pub struct Jump {
     pnc: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicBlock {
     entry: u64,
     exit: u64,
@@ -133,19 +133,21 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
     for (k, v) in jumps.iter_mut() {
         let mut i = 0;
         let mut new_blocks = 1;
+        let mut curr_blocks = blocks.clone(); // reset tainted blocks
         let mut new_edges: Vec<u64> = Vec::new();
         let mut curr_edges: Vec<u64>;
+
         new_edges.push(if v.taken { *k + v.insn_size as u64 } else { v.target });
         // traverse edges n times
-        while i <= opts.n_jumps {
+        while i < opts.n_jumps {
             curr_edges = new_edges.to_owned();
             new_edges.clear();
+
             for edge in curr_edges {
                 let mut next_insn_addr = edge;
                 loop {
                     let disas: capstone::Instructions;
                     disas = cs.disasm_count(&opts.binary[(next_insn_addr - opts.offset) as usize..], next_insn_addr, 1).unwrap();
-
                     let insn = disas.iter().next();
                     let insn =  match insn {
                         Some(i) => i,
@@ -160,7 +162,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                         .nth(1).unwrap_or("")
                         .trim(), 16).unwrap_or(u64::MAX); // jump taken
 
-                        // check if we have decoded an actual address (and not encountered a register branch or pop)
+                        // check if we have decoded an actual address (and not encountered a register branch or POP)
                         if target_0 != u64::MAX {
                             // ignore edges to already discovered basic blocks
                             if !blocks.contains_key(&target_0) {
@@ -169,9 +171,10 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                             }
                         }
 
-                        // if conditional branch, add following instruction as new edge (not-taken case)
+                        // if conditional branch or function call, add following instruction as new edge
                         let mnemonic = insn.mnemonic().unwrap();
-                        if mnemonic.len() > 2 && mnemonic != "blx" && &mnemonic[1..2] != "." {
+                        if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) || 
+                            (mnemonic.len() > 2 && &mnemonic[1..2] != "." && insn.id() != capstone::InsnId(423)) {
                             let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
                             if !blocks.contains_key(&target_1) {
                                 new_edges.push(target_1);
@@ -184,7 +187,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                             entry: edge,
                             exit: next_insn_addr
                         };
-                        blocks.insert(edge, new_bb);
+                        curr_blocks.insert(edge, new_bb);
                         break;
                     }
 
@@ -690,6 +693,6 @@ fn main() {
     Total conditional Jumps:       {}
     Unique conditional Jumps:      {}
     Uni-directional Jumps:         {}
-    Potential New Cov (depth: {}):  {}", r.time, r.num_traces, r.total_jumps, r.unique_jumps, &r.jumps.len(), n_jumps, r.pnc);
+    Potential New Cov (depth: {:02}): {}", r.time, r.num_traces, r.total_jumps, r.unique_jumps, &r.jumps.len(), n_jumps, r.pnc);
     
 }
