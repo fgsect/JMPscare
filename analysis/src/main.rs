@@ -129,7 +129,7 @@ fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock
 fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) 
     -> u32 {
     println!(" >  Analyzing Potential New Coverage");
-    let mut total_new_blocks = 0;
+    let mut all_tainted_blocks = blocks.clone();
     for (k, v) in jumps.iter_mut() {
         let mut i = 0;
         let mut new_blocks = 1;
@@ -156,7 +156,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                     
                     // edge discovered (i.e. jump/branch)
                     if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
-                    insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) {
+                    insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(422) {
                         let target_0: u64 = u64::from_str_radix(insn.op_str().unwrap()
                         .split("0x")
                         .nth(1).unwrap_or("")
@@ -174,7 +174,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                         // if conditional branch or function call, add following instruction as new edge
                         let mnemonic = insn.mnemonic().unwrap();
                         if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) || 
-                            (mnemonic.len() > 2 && &mnemonic[1..2] != "." && insn.id() != capstone::InsnId(423)) {
+                            (mnemonic.len() > 2 && &mnemonic[1..2] != ".") {
                             let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
                             if !blocks.contains_key(&target_1) {
                                 new_edges.push(target_1);
@@ -187,8 +187,17 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                             entry: edge,
                             exit: next_insn_addr
                         };
-                        curr_blocks.insert(edge, new_bb);
+                        curr_blocks.insert(edge, new_bb.clone());
+                        all_tainted_blocks.insert(edge, new_bb);
                         break;
+                    } else if insn.id() == capstone::InsnId(423) { // break on POP
+                        if insn.op_str().unwrap().contains("pc") {
+                            break;
+                        }
+                    } else if insn.id() == capstone::InsnId(75) { // break on LDR PC
+                        if insn.op_str().unwrap().contains("pc, [") {
+                            break;
+                        }
                     }
 
                     next_insn_addr = next_insn_addr + insn.bytes().len() as u64;
@@ -198,10 +207,9 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
             i += 1;
         }
         v.pnc = new_blocks;
-        total_new_blocks += new_blocks;
     }
 
-    return total_new_blocks;
+    return (all_tainted_blocks.len() - blocks.len()) as _;
 }
 
 
