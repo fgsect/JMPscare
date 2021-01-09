@@ -1,12 +1,12 @@
 extern crate clap;
-use clap::{Arg, App};
 use capstone::prelude::*;
-use std::io;
-use std::fs::{self, File};
-use std::io::prelude::*;
-use std::io::Read;
-use std::io::BufRead;
+use clap::{App, Arg};
 use std::collections::{HashMap, HashSet};
+use std::fs::{self, File};
+use std::io;
+use std::io::prelude::*;
+use std::io::BufRead;
+use std::io::Read;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -29,7 +29,7 @@ pub struct BasicBlock {
 #[derive(Debug)]
 pub struct Summary {
     time: u64,
-    num_traces: u64, 
+    num_traces: u64,
     total_jumps: u64,
     unique_jumps: u64,
     jumps: HashMap<u64, Jump>,
@@ -37,7 +37,7 @@ pub struct Summary {
 }
 
 #[derive(Debug)]
-pub struct AnalysisOptions<'a>{
+pub struct AnalysisOptions<'a> {
     binary: Vec<u8>,
     offset: u64,
     trace_path: &'a str,
@@ -47,12 +47,11 @@ pub struct AnalysisOptions<'a>{
     call_weight: u8,
 }
 
-
 const MIPS_BRANCHES: [u32; 46] = [
     arch::mips::MipsInsn::MIPS_INS_BEQ as u32,
     arch::mips::MipsInsn::MIPS_INS_BEQC as u32,
     arch::mips::MipsInsn::MIPS_INS_BEQL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQZ16 as u32 ,
+    arch::mips::MipsInsn::MIPS_INS_BEQZ16 as u32,
     arch::mips::MipsInsn::MIPS_INS_BEQZALC as u32,
     arch::mips::MipsInsn::MIPS_INS_BEQZC as u32,
     arch::mips::MipsInsn::MIPS_INS_BGEC as u32,
@@ -94,7 +93,7 @@ const MIPS_BRANCHES: [u32; 46] = [
     arch::mips::MipsInsn::MIPS_INS_BNZ as u32,
     arch::mips::MipsInsn::MIPS_INS_BZ as u32,
     arch::mips::MipsInsn::MIPS_INS_BEQZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNE as u32
+    arch::mips::MipsInsn::MIPS_INS_BNE as u32,
 ];
 
 // write analysis report to file, to be parsed by JMPscare disassembler plugins
@@ -102,33 +101,47 @@ fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
     println!(" >  Generating Output File");
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
     for (k, v) in jumps.iter() {
-        let s = if v.taken { "ALWAYS_TAKEN" } else { "NEVER_TAKEN" };
-        let line = format!("{:#X} CONDITION_{} {} {}\n", k, v.condition.to_uppercase(), s, v.pnc);
-        file.write(line.as_bytes()).expect("Failed to write to file");
+        let s = if v.taken {
+            "ALWAYS_TAKEN"
+        } else {
+            "NEVER_TAKEN"
+        };
+        let line = format!(
+            "{:#X} CONDITION_{} {} {}\n",
+            k,
+            v.condition.to_uppercase(),
+            s,
+            v.pnc
+        );
+        file.write(line.as_bytes())
+            .expect("Failed to write to file");
     }
 }
 
-
 // filter for uni-directional jumps
 fn find_ud_jumps(jumps: &mut HashMap<u64, Jump>) {
-    jumps.retain(|_k, v| {
-        v.taken != v.not_taken
-    })
+    jumps.retain(|_k, v| v.taken != v.not_taken)
 }
-
 
 // reduce noise (check if basic block behind uni-directional jump has coverage)
 fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock>) {
     jumps.retain(|k, v| {
-        let not_visited = if v.taken { *k + v.insn_size as u64 } else { v.target };
+        let not_visited = if v.taken {
+            *k + v.insn_size as u64
+        } else {
+            v.target
+        };
         !blocks.contains_key(&not_visited)
     })
 }
 
-
 // traverse basic blocks to analyze potential new coverage
-fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks: &mut HashMap<u64, BasicBlock>, opts: AnalysisOptions) 
-    -> u32 {
+fn check_potential_new_cov(
+    cs: Capstone,
+    jumps: &mut HashMap<u64, Jump>,
+    blocks: &mut HashMap<u64, BasicBlock>,
+    opts: AnalysisOptions,
+) -> u32 {
     println!(" >  Analyzing Potential New Coverage");
     let mut all_tainted_blocks = blocks.clone();
     let mut total_new_blocks = jumps.len();
@@ -141,7 +154,11 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
         let mut curr_edges: Vec<u64>;
         let mut function_calls: Vec<u64> = Vec::new();
 
-        new_edges.push(if v.taken { *k + v.insn_size as u64 } else { v.target });
+        new_edges.push(if v.taken {
+            *k + v.insn_size as u64
+        } else {
+            v.target
+        });
         // traverse edges n times
         while i < opts.n_jumps {
             curr_edges = new_edges.to_owned();
@@ -151,20 +168,34 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                 let mut next_insn_addr = edge;
                 loop {
                     let disas: capstone::Instructions;
-                    disas = cs.disasm_count(&opts.binary[(next_insn_addr - opts.offset) as usize..], next_insn_addr, 1).unwrap();
+                    disas = cs
+                        .disasm_count(
+                            &opts.binary[(next_insn_addr - opts.offset) as usize..],
+                            next_insn_addr,
+                            1,
+                        )
+                        .unwrap();
                     let insn = disas.iter().next();
-                    let insn =  match insn {
+                    let insn = match insn {
                         Some(i) => i,
-                        None => break
+                        None => break,
                     };
-                    
+
                     // edge discovered (i.e. jump/branch)
-                    if (insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17)) ||
-                    (insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(422)) {
-                        let target_0: u64 = u64::from_str_radix(insn.op_str().unwrap()
-                        .split("0x")
-                        .nth(1).unwrap_or("")
-                        .trim(), 16).unwrap_or(u64::MAX); // jump taken
+                    if (insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17))
+                        || (insn.id() >= capstone::InsnId(421)
+                            && insn.id() <= capstone::InsnId(422))
+                    {
+                        let target_0: u64 = u64::from_str_radix(
+                            insn.op_str()
+                                .unwrap()
+                                .split("0x")
+                                .nth(1)
+                                .unwrap_or("")
+                                .trim(),
+                            16,
+                        )
+                        .unwrap_or(u64::MAX); // jump taken
 
                         // check if we have decoded an actual address (and not encountered a register branch or POP)
                         if target_0 != u64::MAX {
@@ -178,8 +209,10 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                             }
                         } else {
                             // register unresolvable function calls (e.g. 'blx r3')
-                            if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) &&
-                            !function_calls.contains(&next_insn_addr) {
+                            if (insn.id() == capstone::InsnId(13)
+                                || insn.id() == capstone::InsnId(14))
+                                && !function_calls.contains(&next_insn_addr)
+                            {
                                 new_blocks += opts.call_weight as u32;
                                 total_new_blocks += 1;
                                 // remember curr addr to avoid double logging
@@ -189,8 +222,9 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
 
                         // if conditional branch or function call, add following instruction as new edge
                         let mnemonic = insn.mnemonic().unwrap();
-                        if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) || 
-                            (mnemonic.len() > 2 && &mnemonic[1..2] != ".") {
+                        if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14))
+                            || (mnemonic.len() > 2 && &mnemonic[1..2] != ".")
+                        {
                             let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
                             if !curr_blocks.contains_key(&target_1) {
                                 new_edges.push(target_1);
@@ -200,30 +234,32 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                                 }
                             }
                         }
-                        
+
                         // add current BB
                         let new_bb = BasicBlock {
                             entry: edge,
-                            exit: next_insn_addr
+                            exit: next_insn_addr,
                         };
                         curr_blocks.insert(edge, new_bb.clone());
                         all_tainted_blocks.insert(edge, new_bb);
                         break;
-                    } else if insn.id() == capstone::InsnId(423) { // break on POP
+                    } else if insn.id() == capstone::InsnId(423) {
+                        // break on POP
                         if insn.op_str().unwrap().contains("pc") {
                             let new_bb = BasicBlock {
                                 entry: edge,
-                                exit: next_insn_addr
+                                exit: next_insn_addr,
                             };
                             curr_blocks.insert(edge, new_bb.clone());
                             all_tainted_blocks.insert(edge, new_bb);
                             break;
                         }
-                    } else if insn.id() == capstone::InsnId(75) { // break on LDR PC
+                    } else if insn.id() == capstone::InsnId(75) {
+                        // break on LDR PC
                         if insn.op_str().unwrap().contains("pc, [") {
                             let new_bb = BasicBlock {
                                 entry: edge,
-                                exit: next_insn_addr
+                                exit: next_insn_addr,
                             };
                             curr_blocks.insert(edge, new_bb.clone());
                             all_tainted_blocks.insert(edge, new_bb);
@@ -233,7 +269,6 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
 
                     next_insn_addr = next_insn_addr + insn.bytes().len() as u64;
                 }
-
             }
             i += 1;
         }
@@ -242,7 +277,6 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
 
     return total_new_blocks as _;
 }
-
 
 fn analyze_arm(opts: AnalysisOptions) -> Summary {
     println!("[*] Starting Analysis of ARM Trace");
@@ -269,8 +303,13 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let mut num_traces = 0;
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
-    
-    println!(" >  Finding Uni-Directional Jumps in {} Execution Traces", fs::read_dir(opts.trace_path).expect("Reading directory contents failed").count());
+
+    println!(
+        " >  Finding Uni-Directional Jumps in {} Execution Traces",
+        fs::read_dir(opts.trace_path)
+            .expect("Reading directory contents failed")
+            .count()
+    );
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -286,7 +325,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
 
                     // try to get basic block for current addr or create new BasicBlock if none is set
                     if curr_bb == 0 {
-                        let exists: bool = bb_bucket.contains_key(&addr); 
+                        let exists: bool = bb_bucket.contains_key(&addr);
                         if exists {
                             curr_bb = bb_bucket.get(&addr).unwrap().entry;
                         } else {
@@ -296,15 +335,19 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
 
                     let disas: capstone::Instructions;
                     if addr % 2 == 0 {
-                        disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                        disas = cs
+                            .disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1)
+                            .unwrap();
                         mode = 0;
                     } else {
                         // Requirement: trace addresses of instructions in thumb mode have the LSB set to 1
                         addr -= 1;
-                        disas = cs_t.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                        disas = cs_t
+                            .disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1)
+                            .unwrap();
                         mode = 1;
                     }
-                    
+
                     // check target of last jump
                     if last_jmp_addr != 0 {
                         let last_jmp = jump_map.get_mut(&last_jmp_addr).unwrap();
@@ -330,7 +373,9 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                                 } else {
                                     println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
                                     let mut input = String::new();
-                                    std::io::stdin().read_line(&mut input).expect("failed to read user input");
+                                    std::io::stdin()
+                                        .read_line(&mut input)
+                                        .expect("failed to read user input");
                                     input = input.to_lowercase();
                                     if &input[0..1] == "a" {
                                         panic!();
@@ -345,42 +390,44 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                         }
                     };
 
-                    if insn.id() == capstone::InsnId(17) { // branch
+                    if insn.id() == capstone::InsnId(17) {
+                        // branch
                         num_jumps += 1;
                         let mnemonic = insn.mnemonic().unwrap();
 
                         // conditional branch
                         if mnemonic.len() > 2 && mnemonic != "blx" && &mnemonic[1..2] != "." {
-                            let t = u64::from_str_radix(&disas
-                                .to_string()
-                                .split("#0x")
-                                .nth(1).unwrap()
-                                .trim(), 16).unwrap();
-                            
+                            let t = u64::from_str_radix(
+                                &disas.to_string().split("#0x").nth(1).unwrap().trim(),
+                                16,
+                            )
+                            .unwrap();
+
                             if !jump_map.contains_key(&addr) {
                                 let new_jmp = Jump {
-                                    taken: false, 
-                                    not_taken: false, 
-                                    condition: String::from(&mnemonic[1..3]), 
+                                    taken: false,
+                                    not_taken: false,
+                                    condition: String::from(&mnemonic[1..3]),
                                     target: t,
                                     insn_size: insn.bytes().len() as u8,
                                     mode: mode,
-                                    pnc: 0
+                                    pnc: 0,
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
 
                             last_jmp_addr = addr;
                         }
-                        
                     }
-                    
+
                     // close basic block on jump
                     if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) || // BL, BX, BXL, BXJ, B
-                       insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423) { // CBNZ, CBZ, POP
+                       insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423)
+                    {
+                        // CBNZ, CBZ, POP
                         let new_bb = BasicBlock {
                             entry: curr_bb,
-                            exit: addr
+                            exit: addr,
                         };
                         bb_bucket.insert(curr_bb, new_bb);
                         curr_bb = 0;
@@ -394,11 +441,10 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
     find_ud_jumps(&mut jump_map);
     check_bb_cov(&mut jump_map, &bb_bucket);
     let pnc = check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
-    
 
     let result = Summary {
         time: now.elapsed().as_secs(),
-        num_traces: num_traces, 
+        num_traces: num_traces,
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
@@ -407,7 +453,6 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
 
     return result;
 }
-
 
 fn analyze_x86(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting Analysis of x86_64 Trace");
@@ -427,7 +472,12 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
 
-    println!(" >  Finding Uni-Directional Jumps in {} Execution Traces", fs::read_dir(opts.trace_path).expect("Reading directory contents failed").count());
+    println!(
+        " >  Finding Uni-Directional Jumps in {} Execution Traces",
+        fs::read_dir(opts.trace_path)
+            .expect("Reading directory contents failed")
+            .count()
+    );
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -439,8 +489,10 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
-                    
+                    let disas = cs
+                        .disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1)
+                        .unwrap();
+
                     // check target of last jump
                     if last_jmp_addr != 0 {
                         let last_jmp = jump_map.get_mut(&last_jmp_addr).unwrap();
@@ -462,7 +514,9 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
                             } else {
                                 println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
                                 let mut input = String::new();
-                                std::io::stdin().read_line(&mut input).expect("failed to read user input");
+                                std::io::stdin()
+                                    .read_line(&mut input)
+                                    .expect("failed to read user input");
                                 input = input.to_lowercase();
                                 if &input[0..1] == "a" {
                                     panic!();
@@ -475,27 +529,29 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
                             }
                         }
                     };
-                    
-                    if insn.id().0 >= 253 && insn.id().0 <= 270  { // branch
+
+                    if insn.id().0 >= 253 && insn.id().0 <= 270 {
+                        // branch
                         num_jumps += 1;
                         let mnemonic = insn.mnemonic().unwrap();
 
                         // conditional branch
                         if mnemonic != "jmp" {
-                            let t = u64::from_str_radix(insn.op_str().unwrap()
-                                .split("0x")
-                                .nth(1).unwrap()
-                                .trim(), 16).unwrap();
-                            
+                            let t = u64::from_str_radix(
+                                insn.op_str().unwrap().split("0x").nth(1).unwrap().trim(),
+                                16,
+                            )
+                            .unwrap();
+
                             if !jump_map.contains_key(&addr) {
                                 let new_jmp = Jump {
-                                    taken: false, 
-                                    not_taken: false, 
-                                    condition: String::from(mnemonic.split("j").nth(1).unwrap()), 
+                                    taken: false,
+                                    not_taken: false,
+                                    condition: String::from(mnemonic.split("j").nth(1).unwrap()),
                                     target: t,
                                     insn_size: insn.bytes().len() as u8,
                                     mode: 0,
-                                    pnc: 0
+                                    pnc: 0,
                                 };
                                 jump_map.insert(addr, new_jmp);
                             }
@@ -507,12 +563,12 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
             }
         }
     }
-    
+
     let num_uniq_jumps = jump_map.len() as u64;
 
     let result = Summary {
         time: now.elapsed().as_secs(),
-        num_traces: num_traces, 
+        num_traces: num_traces,
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
@@ -521,7 +577,6 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
 
     return result;
 }
-
 
 fn analyze_mips(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting Analysis of MIPS Trace");
@@ -540,8 +595,13 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
     let mut num_traces = 0;
     let mut num_jumps = 0;
     let mut ignore_list = HashSet::new();
-    
-    println!(" >  Finding Uni-Directional Jumps in {} Execution Traces", fs::read_dir(opts.trace_path).expect("Reading directory contents failed").count());
+
+    println!(
+        " >  Finding Uni-Directional Jumps in {} Execution Traces",
+        fs::read_dir(opts.trace_path)
+            .expect("Reading directory contents failed")
+            .count()
+    );
     for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -553,7 +613,9 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
                     let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs.disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1).unwrap();
+                    let disas = cs
+                        .disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1)
+                        .unwrap();
 
                     // check target of last jump
                     if last_jmp_addr != 0 {
@@ -576,7 +638,9 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
                             } else {
                                 println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
                                 let mut input = String::new();
-                                std::io::stdin().read_line(&mut input).expect("failed to read user input");
+                                std::io::stdin()
+                                    .read_line(&mut input)
+                                    .expect("failed to read user input");
                                 input = input.to_lowercase();
                                 if &input[0..1] == "a" {
                                     panic!();
@@ -594,17 +658,20 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
                         num_jumps += 1;
                         let mnemonic = insn.mnemonic().unwrap();
 
-                        let t = u64::from_str_radix(insn.op_str().unwrap()
-                            .split("0x")
-                            .nth(1).unwrap()
-                            .trim(), 16).unwrap();
+                        let t = u64::from_str_radix(
+                            insn.op_str().unwrap().split("0x").nth(1).unwrap().trim(),
+                            16,
+                        )
+                        .unwrap();
 
                         let mut c: &str;
                         if mnemonic.len() < 3 {
                             c = "Z";
                         } else {
                             c = &mnemonic[1..3];
-                            if mnemonic.len() > 3 && str::to_lowercase(mnemonic).chars().nth(3).unwrap() == 'z' {
+                            if mnemonic.len() > 3
+                                && str::to_lowercase(mnemonic).chars().nth(3).unwrap() == 'z'
+                            {
                                 c = &mnemonic[1..4];
                             }
                         }
@@ -617,7 +684,7 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
                                 target: t,
                                 insn_size: insn.bytes().len() as u8,
                                 mode: 0,
-                                pnc: 0
+                                pnc: 0,
                             };
                             jump_map.insert(addr, new_jmp);
                         }
@@ -633,7 +700,7 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
 
     let result = Summary {
         time: now.elapsed().as_secs(),
-        num_traces: num_traces, 
+        num_traces: num_traces,
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
@@ -642,7 +709,6 @@ fn analyze_mips(opts: AnalysisOptions) -> Summary {
 
     return result;
 }
-
 
 fn main() {
     let options = App::new("JMPscare")
@@ -700,15 +766,17 @@ fn main() {
 
     let out = options.value_of("output").unwrap_or("jmp_analysis.out");
     let arch = options.value_of("arch").unwrap_or("ARM");
-    let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
-        .expect("Failed to parse base offset");
-    let n_jumps = u32::from_str_radix(
-        options.value_of("n_jumps").unwrap_or("3"), 
-        10)
+    let base = u64::from_str_radix(
+        options
+            .value_of("base")
+            .unwrap_or("0x00")
+            .trim_start_matches("0x"),
+        16,
+    )
+    .expect("Failed to parse base offset");
+    let n_jumps = u32::from_str_radix(options.value_of("n_jumps").unwrap_or("3"), 10)
         .expect("Failed to parse number of jumps");
-    let weight = u8::from_str_radix(
-        options.value_of("weight").unwrap_or("1"), 
-        10)
+    let weight = u8::from_str_radix(options.value_of("weight").unwrap_or("1"), 10)
         .expect("Failed to parse call weight for basic blocks counting");
 
     let mut f = File::open(options.value_of("BINARY").unwrap()).expect("Failed to open input file");
@@ -722,7 +790,7 @@ fn main() {
         verbosity_lvl: options.occurrences_of("verbose") as u8,
         skip_warnings: options.is_present("skip_warnings"),
         n_jumps: n_jumps.to_owned(),
-        call_weight: weight
+        call_weight: weight,
     };
 
     let r: Summary;
@@ -735,13 +803,21 @@ fn main() {
     }
 
     generate_output(&r.jumps, out);
-    
-    println!("[+] Finished Analysis in {}s
+
+    println!(
+        "[+] Finished Analysis in {}s
 [*] Summary:
     Execution Traces:              {}
     Total conditional Jumps:       {}
     Unique conditional Jumps:      {}
     Uni-directional Jumps:         {}
-    Potential New Cov (depth: {:02}): {}", r.time, r.num_traces, r.total_jumps, r.unique_jumps, &r.jumps.len(), n_jumps, r.pnc);
-    
+    Potential New Cov (depth: {:02}): {}",
+        r.time,
+        r.num_traces,
+        r.total_jumps,
+        r.unique_jumps,
+        &r.jumps.len(),
+        n_jumps,
+        r.pnc
+    );
 }

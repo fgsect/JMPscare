@@ -18,3 +18,7 @@ description = "Rust program for analyzing taken jumps over multiple execution tr
 [dependencies]
 capstone="0.7.0"
 clap = "2.33.2"
+
+[profile.release]
+lto = true
+opt-level = 3
