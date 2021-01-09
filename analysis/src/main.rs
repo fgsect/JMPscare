@@ -131,6 +131,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
     -> u32 {
     println!(" >  Analyzing Potential New Coverage");
     let mut all_tainted_blocks = blocks.clone();
+    let mut total_new_blocks = jumps.len();
     for (k, v) in jumps.iter_mut() {
         let mut i = 0;
         let mut new_blocks: u32 = 1;
@@ -167,15 +168,19 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                         // check if we have decoded an actual address (and not encountered a register branch or POP)
                         if target_0 != u64::MAX {
                             // ignore edges to already discovered basic blocks
-                            if !blocks.contains_key(&target_0) {
+                            if !curr_blocks.contains_key(&target_0) {
                                 new_edges.push(target_0);
                                 new_blocks += 1;
+                                if !all_tainted_blocks.contains_key(&target_0) {
+                                    total_new_blocks += 1;
+                                }
                             }
                         } else {
                             // register unresolvable function calls (e.g. 'blx r3')
                             if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) &&
                             !function_calls.contains(&next_insn_addr) {
                                 new_blocks += opts.call_weight as u32;
+                                total_new_blocks += 1;
                                 // remember curr addr to avoid double logging
                                 function_calls.push(next_insn_addr);
                             }
@@ -186,9 +191,12 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                         if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) || 
                             (mnemonic.len() > 2 && &mnemonic[1..2] != ".") {
                             let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
-                            if !blocks.contains_key(&target_1) {
+                            if !curr_blocks.contains_key(&target_1) {
                                 new_edges.push(target_1);
                                 new_blocks += 1;
+                                if !all_tainted_blocks.contains_key(&target_1) {
+                                    total_new_blocks += 1;
+                                }
                             }
                         }
                         
@@ -230,7 +238,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
         }
         v.pnc = new_blocks;
     }
-    return (all_tainted_blocks.len() - blocks.len()) as _;
+    return total_new_blocks as _;
 }
 
 
