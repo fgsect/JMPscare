@@ -44,6 +44,7 @@ pub struct AnalysisOptions<'a>{
     verbosity_lvl: u8,
     skip_warnings: bool,
     n_jumps: u32,
+    call_weight: u8,
 }
 
 
@@ -132,10 +133,11 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
     let mut all_tainted_blocks = blocks.clone();
     for (k, v) in jumps.iter_mut() {
         let mut i = 0;
-        let mut new_blocks = 1;
+        let mut new_blocks: u32 = 1;
         let mut curr_blocks = blocks.clone(); // reset tainted blocks
         let mut new_edges: Vec<u64> = Vec::new();
         let mut curr_edges: Vec<u64>;
+        let mut function_calls: Vec<u64> = Vec::new();
 
         new_edges.push(if v.taken { *k + v.insn_size as u64 } else { v.target });
         // traverse edges n times
@@ -169,6 +171,14 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                                 new_edges.push(target_0);
                                 new_blocks += 1;
                             }
+                        } else {
+                            // register unresolvable function calls (e.g. 'blx r3')
+                            if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14)) &&
+                            !function_calls.contains(&next_insn_addr) {
+                                new_blocks += opts.call_weight as u32;
+                                // remember curr addr to avoid double logging
+                                function_calls.push(next_insn_addr);
+                            }
                         }
 
                         // if conditional branch or function call, add following instruction as new edge
@@ -192,10 +202,22 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                         break;
                     } else if insn.id() == capstone::InsnId(423) { // break on POP
                         if insn.op_str().unwrap().contains("pc") {
+                            let new_bb = BasicBlock {
+                                entry: edge,
+                                exit: next_insn_addr
+                            };
+                            curr_blocks.insert(edge, new_bb.clone());
+                            all_tainted_blocks.insert(edge, new_bb);
                             break;
                         }
                     } else if insn.id() == capstone::InsnId(75) { // break on LDR PC
                         if insn.op_str().unwrap().contains("pc, [") {
+                            let new_bb = BasicBlock {
+                                entry: edge,
+                                exit: next_insn_addr
+                            };
+                            curr_blocks.insert(edge, new_bb.clone());
+                            all_tainted_blocks.insert(edge, new_bb);
                             break;
                         }
                     }
@@ -208,7 +230,6 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
         }
         v.pnc = new_blocks;
     }
-
     return (all_tainted_blocks.len() - blocks.len()) as _;
 }
 
@@ -649,6 +670,11 @@ fn main() {
                                .value_name("N")
                                .help("Specifies the amount of edges to traverse (i.e. jumps to take) during Potential New Coverage Analysis")
                                .takes_value(true))
+                          .arg(Arg::with_name("weight")
+                               .short("w")
+                               .value_name("<0-15>")
+                               .help("Sets the weight of unresolvable function calls (e.g. 'bl r3') in basic block counting during Potential New Coverage Analysis. Default: 1")
+                               .takes_value(true))
                           .arg(Arg::with_name("BINARY")
                                .help("Sets path to original binary the traces were taken from")
                                .required(true)
@@ -670,6 +696,10 @@ fn main() {
         options.value_of("n_jumps").unwrap_or("3"), 
         10)
         .expect("Failed to parse number of jumps");
+    let weight = u8::from_str_radix(
+        options.value_of("weight").unwrap_or("1"), 
+        10)
+        .expect("Failed to parse call weight for basic blocks counting");
 
     let mut f = File::open(options.value_of("BINARY").unwrap()).expect("Failed to open input file");
     let mut blob = Vec::new();
@@ -681,7 +711,8 @@ fn main() {
         trace_path: options.value_of("traces").unwrap(),
         verbosity_lvl: options.occurrences_of("verbose") as u8,
         skip_warnings: options.is_present("skip_warnings"),
-        n_jumps: n_jumps.to_owned()
+        n_jumps: n_jumps.to_owned(),
+        call_weight: weight
     };
 
     let r: Summary;
