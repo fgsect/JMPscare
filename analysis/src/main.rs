@@ -132,6 +132,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
     println!(" >  Analyzing Potential New Coverage");
     let mut all_tainted_blocks = blocks.clone();
     let mut total_new_blocks = jumps.len();
+
     for (k, v) in jumps.iter_mut() {
         let mut i = 0;
         let mut new_blocks: u32 = 1;
@@ -158,8 +159,8 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
                     };
                     
                     // edge discovered (i.e. jump/branch)
-                    if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) ||
-                    insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(422) {
+                    if (insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17)) ||
+                    (insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(422)) {
                         let target_0: u64 = u64::from_str_radix(insn.op_str().unwrap()
                         .split("0x")
                         .nth(1).unwrap_or("")
@@ -238,6 +239,7 @@ fn check_potential_new_cov(cs: Capstone, jumps: &mut HashMap<u64, Jump>, blocks:
         }
         v.pnc = new_blocks;
     }
+
     return total_new_blocks as _;
 }
 
@@ -665,7 +667,7 @@ fn main() {
                                .short("a")
                                .long("arch")
                                .value_name("ARCH")
-                               .help("Sets binary target architecture. Supported: x86_64, ARM, MIPS. Default: x86_64")
+                               .help("Sets binary target architecture. Supported: x86_64, ARM, MIPS. Default: ARM")
                                .takes_value(true))
                           .arg(Arg::with_name("base")
                                .short("b")
@@ -697,7 +699,7 @@ fn main() {
                           .get_matches();
 
     let out = options.value_of("output").unwrap_or("jmp_analysis.out");
-    let arch = options.value_of("arch").unwrap_or("x86_64");
+    let arch = options.value_of("arch").unwrap_or("ARM");
     let base = u64::from_str_radix(options.value_of("base").unwrap_or("0x00").trim_start_matches("0x"), 16)
         .expect("Failed to parse base offset");
     let n_jumps = u32::from_str_radix(

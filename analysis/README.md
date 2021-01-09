@@ -1,7 +1,8 @@
 # Analysis Tool
 
-This command line tool takes execution traces and the path to a binary in order to analyze which jumps were taken and which parts of a program are never reached. 
-At the moment, the x86_64, ARM (incl. thumb2) and MIPS32 architectures are supported.
+This command line tool takes execution traces and the path to a binary in order to analyze which jumps were taken and which parts of a program are never reached.
+Furthermore, the number of unseen basic blocks reachable in N (user specified) edge traversals behind a roadblock branch can be evaluated for ARM binaries.
+At the moment, the ARM (incl. thumb2), x86_64 and MIPS32 architectures are supported.
 
 ## Building & Running
 The program is written in Rust and can be conveniently built with cargo. Make sure to compile in release mode, as this will yield significant speedups for large amounts of input files:
