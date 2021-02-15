@@ -1,13 +1,15 @@
 extern crate clap;
-use capstone::prelude::*;
+use capstone::{
+    arch::{arm::ArmInsn, mips::MipsInsn, x86::X86Insn},
+    prelude::*,
+};
 use clap::{App, Arg};
-use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
-use std::io;
-use std::io::prelude::*;
-use std::io::BufRead;
-use std::io::Read;
-use std::time::Instant;
+use std::{
+    collections::{HashMap, HashSet},
+    fs::{self, File},
+    io::{self, BufRead, Read, Write},
+    time::Instant,
+};
 
 #[derive(Debug)]
 pub struct Jump {
@@ -48,52 +50,52 @@ pub struct AnalysisOptions<'a> {
 }
 
 const MIPS_BRANCHES: [u32; 46] = [
-    arch::mips::MipsInsn::MIPS_INS_BEQ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQZ16 as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQZALC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQZC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEUC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZAL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZALC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZALL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZALS as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGEZL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGTZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGTZALC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGTZC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BGTZL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLEZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLEZALC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLEZC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLEZL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTUC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZAL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZALC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZALL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZALS as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BLTZL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNE as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEGI as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEG as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEL as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEZ16 as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEZALC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNEZC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNVC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BOVC as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BEQZ as u32,
-    arch::mips::MipsInsn::MIPS_INS_BNE as u32,
+    MipsInsn::MIPS_INS_BEQ as u32,
+    MipsInsn::MIPS_INS_BEQC as u32,
+    MipsInsn::MIPS_INS_BEQL as u32,
+    MipsInsn::MIPS_INS_BEQZ16 as u32,
+    MipsInsn::MIPS_INS_BEQZALC as u32,
+    MipsInsn::MIPS_INS_BEQZC as u32,
+    MipsInsn::MIPS_INS_BGEC as u32,
+    MipsInsn::MIPS_INS_BGEUC as u32,
+    MipsInsn::MIPS_INS_BGEZ as u32,
+    MipsInsn::MIPS_INS_BGEZAL as u32,
+    MipsInsn::MIPS_INS_BGEZALC as u32,
+    MipsInsn::MIPS_INS_BGEZALL as u32,
+    MipsInsn::MIPS_INS_BGEZALS as u32,
+    MipsInsn::MIPS_INS_BGEZC as u32,
+    MipsInsn::MIPS_INS_BGEZL as u32,
+    MipsInsn::MIPS_INS_BGTZ as u32,
+    MipsInsn::MIPS_INS_BGTZALC as u32,
+    MipsInsn::MIPS_INS_BGTZC as u32,
+    MipsInsn::MIPS_INS_BGTZL as u32,
+    MipsInsn::MIPS_INS_BLEZ as u32,
+    MipsInsn::MIPS_INS_BLEZALC as u32,
+    MipsInsn::MIPS_INS_BLEZC as u32,
+    MipsInsn::MIPS_INS_BLEZL as u32,
+    MipsInsn::MIPS_INS_BLTC as u32,
+    MipsInsn::MIPS_INS_BLTUC as u32,
+    MipsInsn::MIPS_INS_BLTZ as u32,
+    MipsInsn::MIPS_INS_BLTZAL as u32,
+    MipsInsn::MIPS_INS_BLTZALC as u32,
+    MipsInsn::MIPS_INS_BLTZALL as u32,
+    MipsInsn::MIPS_INS_BLTZALS as u32,
+    MipsInsn::MIPS_INS_BLTZC as u32,
+    MipsInsn::MIPS_INS_BLTZL as u32,
+    MipsInsn::MIPS_INS_BNE as u32,
+    MipsInsn::MIPS_INS_BNEC as u32,
+    MipsInsn::MIPS_INS_BNEGI as u32,
+    MipsInsn::MIPS_INS_BNEG as u32,
+    MipsInsn::MIPS_INS_BNEL as u32,
+    MipsInsn::MIPS_INS_BNEZ16 as u32,
+    MipsInsn::MIPS_INS_BNEZALC as u32,
+    MipsInsn::MIPS_INS_BNEZC as u32,
+    MipsInsn::MIPS_INS_BNVC as u32,
+    MipsInsn::MIPS_INS_BOVC as u32,
+    MipsInsn::MIPS_INS_BNZ as u32,
+    MipsInsn::MIPS_INS_BZ as u32,
+    MipsInsn::MIPS_INS_BEQZ as u32,
+    MipsInsn::MIPS_INS_BNE as u32,
 ];
 
 // write analysis report to file, to be parsed by JMPscare disassembler plugins
@@ -182,9 +184,10 @@ fn check_potential_new_cov(
                     };
 
                     // edge discovered (i.e. jump/branch)
-                    if (insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17))
-                        || (insn.id() >= capstone::InsnId(421)
-                            && insn.id() <= capstone::InsnId(422))
+                    if (insn.id().0 >= ArmInsn::ARM_INS_BL as u32
+                        && insn.id().0 <= ArmInsn::ARM_INS_B as u32)
+                        || insn.id().0 == ArmInsn::ARM_INS_CBNZ as u32
+                        || insn.id().0 == ArmInsn::ARM_INS_CBZ as u32
                     {
                         let target_0: u64 = u64::from_str_radix(
                             insn.op_str()
@@ -209,8 +212,8 @@ fn check_potential_new_cov(
                             }
                         } else {
                             // register unresolvable function calls (e.g. 'blx r3')
-                            if (insn.id() == capstone::InsnId(13)
-                                || insn.id() == capstone::InsnId(14))
+                            if (insn.id().0 == ArmInsn::ARM_INS_BL as u32
+                                || insn.id().0 == ArmInsn::ARM_INS_BLX as u32)
                                 && !function_calls.contains(&next_insn_addr)
                             {
                                 new_blocks += opts.call_weight as u32;
@@ -222,7 +225,8 @@ fn check_potential_new_cov(
 
                         // if conditional branch or function call, add following instruction as new edge
                         let mnemonic = insn.mnemonic().unwrap();
-                        if (insn.id() == capstone::InsnId(13) || insn.id() == capstone::InsnId(14))
+                        if (insn.id().0 == ArmInsn::ARM_INS_BL as u32
+                            || insn.id().0 == ArmInsn::ARM_INS_BLX as u32)
                             || (mnemonic.len() > 2 && &mnemonic[1..2] != ".")
                         {
                             let target_1: u64 = next_insn_addr + insn.bytes().len() as u64; // jump not taken
@@ -243,7 +247,7 @@ fn check_potential_new_cov(
                         curr_blocks.insert(edge, new_bb.clone());
                         all_tainted_blocks.insert(edge, new_bb);
                         break;
-                    } else if insn.id() == capstone::InsnId(423) {
+                    } else if insn.id().0 == ArmInsn::ARM_INS_POP as u32 {
                         // break on POP
                         if insn.op_str().unwrap().contains("pc") {
                             let new_bb = BasicBlock {
@@ -254,7 +258,7 @@ fn check_potential_new_cov(
                             all_tainted_blocks.insert(edge, new_bb);
                             break;
                         }
-                    } else if insn.id() == capstone::InsnId(75) {
+                    } else if insn.id().0 == ArmInsn::ARM_INS_LDR as u32 {
                         // break on LDR PC
                         if insn.op_str().unwrap().contains("pc, [") {
                             let new_bb = BasicBlock {
@@ -390,7 +394,7 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                         }
                     };
 
-                    if insn.id() == capstone::InsnId(17) {
+                    if insn.id().0 == ArmInsn::ARM_INS_B as u32 {
                         // branch
                         num_jumps += 1;
                         let mnemonic = insn.mnemonic().unwrap();
@@ -421,8 +425,8 @@ fn analyze_arm(opts: AnalysisOptions) -> Summary {
                     }
 
                     // close basic block on jump
-                    if insn.id() >= capstone::InsnId(13) && insn.id() <= capstone::InsnId(17) || // BL, BX, BXL, BXJ, B
-                       insn.id() >= capstone::InsnId(421) && insn.id() <= capstone::InsnId(423)
+                    if insn.id().0 >= ArmInsn::ARM_INS_BL as u32 && insn.id().0 <= ArmInsn::ARM_INS_B as u32 || // BL, BX, BXL, BXJ, B
+                       insn.id().0 >= ArmInsn::ARM_INS_CBNZ as u32 && insn.id().0 <= ArmInsn::ARM_INS_POP as u32
                     {
                         // CBNZ, CBZ, POP
                         let new_bb = BasicBlock {
@@ -530,7 +534,9 @@ fn analyze_x86(opts: AnalysisOptions) -> Summary {
                         }
                     };
 
-                    if insn.id().0 >= 253 && insn.id().0 <= 270 {
+                    if insn.id().0 >= X86Insn::X86_INS_JAE as u32
+                        && insn.id().0 <= X86Insn::X86_INS_JP as u32
+                    {
                         // branch
                         num_jumps += 1;
                         let mnemonic = insn.mnemonic().unwrap();
