@@ -8,7 +8,7 @@ use std::{
 
 use crate::common::{AnalysisOptions, Jump, Summary};
 
-/// The x86_64 analysis
+/// The x86_64 JMPscare analysis
 pub fn analyze_x86(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting Analysis of x86_64 Trace");
     let now = Instant::now();

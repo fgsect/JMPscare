@@ -57,6 +57,7 @@ const MIPS_BRANCHES: [u32; 46] = [
     MipsInsn::MIPS_INS_BNE as u32,
 ];
 
+/// The arm JMPscare analysis
 pub fn analyze_mips(opts: AnalysisOptions) -> Summary {
     println!("[+] Starting Analysis of MIPS Trace");
     let now = Instant::now();

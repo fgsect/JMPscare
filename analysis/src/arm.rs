@@ -8,7 +8,7 @@ use std::{
 
 use crate::common::{check_bb_cov, find_ud_jumps, AnalysisOptions, BasicBlock, Jump, Summary};
 
-// traverse basic blocks to analyze potential new coverage
+/// traverse basic blocks to analyze potential new coverage
 fn check_potential_new_cov(
     cs: Capstone,
     jumps: &mut HashMap<u64, Jump>,
@@ -153,6 +153,7 @@ fn check_potential_new_cov(
     return total_new_blocks as _;
 }
 
+/// The arm JMPscare analysis
 pub fn analyze_arm(opts: AnalysisOptions) -> Summary {
     println!("[*] Starting Analysis of ARM Trace");
     let now = Instant::now();

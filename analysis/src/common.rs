@@ -38,7 +38,7 @@ pub struct AnalysisOptions<'a> {
     pub call_weight: u8,
 }
 
-// write analysis report to file, to be parsed by JMPscare disassembler plugins
+/// write analysis report to file, to be parsed by JMPscare disassembler plugins
 pub fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
     println!(" >  Generating Output File");
     let mut file = File::create(file_name.to_string()).expect("Failed to create file");
@@ -60,12 +60,12 @@ pub fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
     }
 }
 
-// filter for uni-directional jumps
+/// filter for uni-directional jumps
 pub fn find_ud_jumps(jumps: &mut HashMap<u64, Jump>) {
     jumps.retain(|_k, v| v.taken != v.not_taken)
 }
 
-// reduce noise (check if basic block behind uni-directional jump has coverage)
+/// reduce noise (check if basic block behind uni-directional jump has coverage)
 pub fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock>) {
     jumps.retain(|k, v| {
         let not_visited = if v.taken {
