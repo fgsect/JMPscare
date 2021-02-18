@@ -1,3 +1,4 @@
+//! The analyses for ARM
 use capstone::{arch::arm::ArmInsn, prelude::*};
 use std::{
     collections::{HashMap, HashSet},
@@ -319,7 +320,7 @@ pub fn analyze_arm(opts: AnalysisOptions) -> Summary {
     let pnc = check_potential_new_cov(cs_t, &mut jump_map, &mut bb_bucket, opts);
 
     let result = Summary {
-        time: now.elapsed().as_secs(),
+        time: now.elapsed(),
         num_traces: num_traces,
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,

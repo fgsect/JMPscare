@@ -1,3 +1,4 @@
+//!JMPscare, the main
 extern crate clap;
 
 mod arm;
@@ -117,7 +118,7 @@ fn main() {
     Unique conditional Jumps:      {}
     Uni-directional Jumps:         {}
     Potential New Cov (depth: {:02}): {}",
-        r.time,
+        r.time.as_secs(),
         r.num_traces,
         r.total_jumps,
         r.unique_jumps,

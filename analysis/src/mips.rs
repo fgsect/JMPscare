@@ -1,3 +1,4 @@
+//! The analyses for MIPS
 use capstone::{arch::mips::MipsInsn, prelude::*};
 use std::{
     collections::{HashMap, HashSet},
@@ -179,11 +180,12 @@ pub fn analyze_mips(opts: AnalysisOptions) -> Summary {
     let num_uniq_jumps = jump_map.len() as u64;
 
     let result = Summary {
-        time: now.elapsed().as_secs(),
+        time: now.elapsed(),
         num_traces: num_traces,
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
+        // TODO: Add possible new coverage analysis support
         pnc: 0,
     };
 
