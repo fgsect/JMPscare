@@ -1,0 +1,3 @@
+[submodule "plugins/binaryninja/JMPscare"]
+	path = plugins/binaryninja/JMPscare
+	url = https://github.com/fgsect/JMPscare-binja
