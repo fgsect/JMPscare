@@ -18,7 +18,7 @@ description = "Rust crate for coverage collection (program trace) for the use wi
 [dependencies]
 libc = "0.2"
 capstone="0.6.0"
-unicornafl = { path = "/path/to/unicornafl/rust/bindings", version="1.0.0" }
+unicornafl = { path = "/home/domenukk/BaseSAFE/AFLplusplus/unicorn_mode/unicornafl/bindings/rust", version="1.0.0" }
 
 [build-dependencies]
 build-helper = "0.1"
