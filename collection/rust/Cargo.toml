@@ -1,7 +1,7 @@
 [package]
 name = "jmpscare-col"
 version = "0.1.0"
-authors = ["Lukas Seidel"]
+authors = ["Lukas Seidel", "Dominik Maier"]
 documentation = ""
 edition = "2018"
 include = [
@@ -12,13 +12,13 @@ include = [
 ]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/pr0me/JMPscare"
+repository = "https://github.com/fgsect/JMPscare"
 description = "Rust crate for coverage collection (program trace) for the use with unicornafl"
 
 [dependencies]
 libc = "0.2"
 capstone="0.6.0"
-unicornafl = { path = "/home/pr0me/Documents/code/university/work_sect/fuzz/AFLplusplus/unicorn_mode/unicornafl/bindings/rust", version="1.0.0" }
+unicornafl = { path = "/path/to/unicornafl/rust/bindings", version="1.0.0" }
 
 [build-dependencies]
 build-helper = "0.1"

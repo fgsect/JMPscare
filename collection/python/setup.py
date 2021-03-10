@@ -8,7 +8,7 @@ setuptools.setup(
     description="Package for execution trace collection via unicornafl, for the use with JMPscare.",
     long_description=None,
     long_description_content_type="text/markdown",
-    url="https://github.com/pr0me/JMPscare/collection/python",
+    url="https://github.com/fgsect/JMPscare/collection/python",
     packages=["jmpscare_col"],
     classifiers=[
         "Programming Language :: Python :: 3",
