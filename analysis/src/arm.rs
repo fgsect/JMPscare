@@ -197,7 +197,7 @@ pub fn analyze_arm(opts: AnalysisOptions) -> Summary {
 
             for line in io::BufReader::new(fd).lines() {
                 if let Ok(l) = line {
-                    let mut addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
+                    let mut addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).expect(&format!("Failed at file {}", curr_file));
                     let mode;
 
                     // try to get basic block for current addr or create new BasicBlock if none is set
