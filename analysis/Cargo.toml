@@ -17,7 +17,7 @@ description = "Rust program for analyzing taken jumps over multiple execution tr
 
 [dependencies]
 capstone="0.12.0"
-clap = { version = "4.5.20", features = ["derive", "cargo"] }
+clap = "4.5.20"
 
 [profile.release]
 lto = true
