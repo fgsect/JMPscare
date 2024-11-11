@@ -1,5 +1,5 @@
 //! Analysis functions and structs used in all platforms
-use std::{collections::HashMap, fs::File, io::Write, time::Duration};
+use std::{collections::HashMap, fs::File, hash::BuildHasher, io::Write, time::Duration};
 
 /// Describing a single Jump
 #[derive(Debug)]
@@ -48,21 +48,24 @@ pub struct Summary {
 
 /// Options passed to the analysis
 #[derive(Debug)]
-pub struct AnalysisOptions<'a> {
+pub struct AnalysisOptions {
     pub binary: Vec<u8>,
     pub offset: u64,
-    pub trace_path: &'a str,
+    pub trace_path: String,
     pub verbosity_lvl: u8,
     pub skip_warnings: bool,
     pub n_jumps: u32,
     pub call_weight: u8,
 }
 
-/// write analysis report to file, to be parsed by JMPscare disassembler plugins
-pub fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
+/// write analysis report to file, to be parsed by `JMPscare` disassembler plugins
+///
+/// # Panics
+/// panics if report file could not be written to for a number of reasons
+pub fn generate_output<H: BuildHasher>(jumps: &HashMap<u64, Jump, H>, file_name: &str) {
     println!(" >  Generating Output File");
-    let mut file = File::create(file_name.to_string()).expect("Failed to create file");
-    for (k, v) in jumps.iter() {
+    let mut file = File::create(file_name).expect("Failed to create file");
+    for (k, v) in jumps {
         let s = if v.taken {
             "ALWAYS_TAKEN"
         } else {
@@ -75,24 +78,27 @@ pub fn generate_output(jumps: &HashMap<u64, Jump>, file_name: &str) {
             s,
             v.pnc
         );
-        file.write(line.as_bytes())
+        file.write_all(line.as_bytes())
             .expect("Failed to write to file");
     }
 }
 
 /// filter for uni-directional jumps
-pub fn find_ud_jumps(jumps: &mut HashMap<u64, Jump>) {
-    jumps.retain(|_k, v| v.taken != v.not_taken)
+pub fn find_ud_jumps<H: BuildHasher>(jumps: &mut HashMap<u64, Jump, H>) {
+    jumps.retain(|_k, v| v.taken != v.not_taken);
 }
 
 /// reduce noise (check if basic block behind uni-directional jump has coverage)
-pub fn check_bb_cov(jumps: &mut HashMap<u64, Jump>, blocks: &HashMap<u64, BasicBlock>) {
+pub fn check_bb_cov<H: BuildHasher>(
+    jumps: &mut HashMap<u64, Jump, H>,
+    blocks: &HashMap<u64, BasicBlock, H>,
+) {
     jumps.retain(|k, v| {
         let not_visited = if v.taken {
-            *k + v.insn_size as u64
+            *k + u64::from(v.insn_size)
         } else {
             v.target
         };
         !blocks.contains_key(&not_visited)
-    })
+    });
 }
