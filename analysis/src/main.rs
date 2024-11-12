@@ -8,7 +8,7 @@ mod x86;
 
 use std::{fs::File, io::Read};
 
-use clap::{Arg, Command};
+use clap::{Arg, ArgAction, Command};
 
 use crate::{
     arm::analyze_arm,
@@ -66,6 +66,7 @@ fn main() {
                                .help("Skip all disassembler warnings"))
                           .arg(Arg::new("verbose")
                                .short('v')
+                               .action(ArgAction::Count)
                                .help("Show verbose output"))
                           .get_matches();
 
