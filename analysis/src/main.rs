@@ -69,6 +69,11 @@ fn main() {
                                .short('v')
                                .action(ArgAction::Count)
                                .help("Show verbose output"))
+                          .arg(Arg::new("force_thumb")
+                                .long("force_thumb")
+                                .short('f')
+                                .action(ArgAction::SetTrue)
+                                .help("For arm32: Forces decoding in thumb mode, even if the addresses don't have the thumb-bit set."))
                           .get_matches();
 
     let default_output = "jmp_analysis.out".to_string();
@@ -77,6 +82,13 @@ fn main() {
         .unwrap_or(&default_output);
     let default_arch = "ARM".to_string();
     let arch = options.get_one::<String>("arch").unwrap_or(&default_arch);
+    let force_thumb = options.get_flag("force_thumb");
+
+    assert!(
+        !force_thumb || arch == "ARM",
+        "The force_thumb flags was provided for non-arm architecture: {arch}"
+    );
+
     let base = u64::from_str_radix(
         options
             .get_one::<String>("base")
@@ -103,6 +115,7 @@ fn main() {
 
     let opts = AnalysisOptions {
         binary: blob,
+        force_thumb,
         offset: base,
         trace_path: options.get_one::<String>("traces").unwrap().clone(),
         verbosity_lvl: options.get_count("verbose"),
@@ -123,7 +136,8 @@ fn main() {
     generate_output(&r.jumps, out);
 
     println!(
-        "[+] Finished Analysis in {}s
+        "[*] File written to {out}
+[+] Finished Analysis in {}s
 [*] Summary:
     Execution Traces:              {}
     Total conditional Jumps:       {}

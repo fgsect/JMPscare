@@ -5,3 +5,4 @@ collection/rust/Cargo.lock
 collection/python/jmpscare_col.egg-info
 collection/python/jmpscare_col/__pycache__
 .vscode
+jmp_analysis.out

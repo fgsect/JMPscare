@@ -51,6 +51,8 @@ pub struct Summary {
 pub struct AnalysisOptions {
     pub binary: Vec<u8>,
     pub offset: u64,
+    /// Forces thumb mode for ARM firmware
+    pub force_thumb: bool,
     pub trace_path: String,
     pub verbosity_lvl: u8,
     pub skip_warnings: bool,

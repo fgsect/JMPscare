@@ -170,9 +170,15 @@ pub fn analyze_arm(opts: &AnalysisOptions) -> Summary {
     println!("[*] Starting Analysis of ARM Trace");
     let now = Instant::now();
 
+    let default_mode = if opts.force_thumb {
+        arch::arm::ArchMode::Thumb
+    } else {
+        arch::arm::ArchMode::Arm
+    };
+
     let cs = Capstone::new()
         .arm()
-        .mode(arch::arm::ArchMode::Arm)
+        .mode(default_mode)
         .detail(true)
         .build()
         .expect("Failed to create Capstone object for ARM");
