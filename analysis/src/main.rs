@@ -63,6 +63,7 @@ fn main() {
                                .index(1))
                           .arg(Arg::new("skip_warnings")
                                .short('y')
+                               .action(ArgAction::SetTrue)
                                .help("Skip all disassembler warnings"))
                           .arg(Arg::new("verbose")
                                .short('v')

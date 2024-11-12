@@ -43,6 +43,15 @@ fn check_potential_new_cov(
 
             for edge in curr_edges {
                 let mut next_insn_addr = edge;
+
+                if next_insn_addr > opts.binary.len() as u64 {
+                    println!(
+                        "Warning: Address out of range: {next_insn_addr:#x} (size {:#x})",
+                        opts.binary.len()
+                    );
+                    continue;
+                }
+
                 loop {
                     let disas: capstone::Instructions = cs
                         .disasm_count(
@@ -197,9 +206,16 @@ pub fn analyze_arm(opts: &AnalysisOptions) -> Summary {
             let fd = File::open(curr_file).expect("Failed to open file");
             num_traces += 1;
 
-            for l in io::BufReader::new(fd).lines().map_while(Result::ok) {
-                let mut addr = u64::from_str_radix(l.trim_start_matches("0x"), 16)
-                    .unwrap_or_else(|_| panic!("Failed at file {}", curr_file));
+            for line in io::BufReader::new(fd).lines().map_while(Result::ok) {
+                if line.starts_with('#') || line.trim().is_empty() {
+                    // Ignore comments and empty lines.
+                    continue;
+                }
+
+                let mut addr = u64::from_str_radix(line.trim_start_matches("0x"), 16)
+                    .unwrap_or_else(|err| {
+                        panic!("Failed at file {curr_file} (line: {line}): {err}")
+                    });
                 let mode;
 
                 // try to get basic block for current addr or create new BasicBlock if none is set

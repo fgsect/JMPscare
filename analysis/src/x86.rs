@@ -45,8 +45,13 @@ pub fn analyze_x86(opts: &AnalysisOptions) -> Summary {
             let fd = File::open(curr_file).expect("Failed to open file");
             num_traces += 1;
 
-            for l in io::BufReader::new(fd).lines().map_while(Result::ok) {
-                let addr = u64::from_str_radix(l.trim_start_matches("0x"), 16).unwrap();
+            for line in io::BufReader::new(fd).lines().map_while(Result::ok) {
+                if line.starts_with('#') || line.trim().is_empty() {
+                    // Ignore comments and empty lines.
+                    continue;
+                }
+
+                let addr = u64::from_str_radix(line.trim_start_matches("0x"), 16).unwrap();
                 let disas = cs
                     .disasm_count(
                         &opts.binary[usize::try_from(addr - opts.offset).unwrap()..],

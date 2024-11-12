@@ -3,7 +3,7 @@ name = "jmpscare"
 version = "0.1.0"
 authors = ["Lukas Seidel"]
 documentation = ""
-edition = "2018"
+edition = "2021"
 include = [
     "/.gitmodules",
     "/Cargo.toml",
