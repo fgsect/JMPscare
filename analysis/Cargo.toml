@@ -3,7 +3,7 @@ name = "jmpscare"
 version = "0.1.0"
 authors = ["Lukas Seidel"]
 documentation = ""
-edition = "2018"
+edition = "2021"
 include = [
     "/.gitmodules",
     "/Cargo.toml",
@@ -16,8 +16,8 @@ repository = "https://github.com/pr0me/JMPscare"
 description = "Rust program for analyzing taken jumps over multiple execution traces"
 
 [dependencies]
-capstone="0.7.0"
-clap = "2.33.2"
+capstone="0.12.0"
+clap = "4.5.20"
 
 [profile.release]
 lto = true

@@ -1,16 +1,19 @@
 //! The analyses for x86(_64)
-use capstone::{arch::x86::X86Insn, prelude::*};
 use std::{
     collections::{HashMap, HashSet},
+    convert::TryFrom,
     fs::{self, File},
     io::{self, BufRead},
     time::Instant,
 };
 
+use capstone::{arch::x86::X86Insn, prelude::*};
+
 use crate::common::{AnalysisOptions, Jump, Summary};
 
-/// The x86_64 JMPscare analysis
-pub fn analyze_x86(opts: AnalysisOptions) -> Summary {
+/// The `x86_64` `JMPscare` analysis
+#[allow(clippy::too_many_lines)]
+pub fn analyze_x86(opts: &AnalysisOptions) -> Summary {
     println!("[+] Starting Analysis of x86_64 Trace");
     let now = Instant::now();
 
@@ -30,11 +33,11 @@ pub fn analyze_x86(opts: AnalysisOptions) -> Summary {
 
     println!(
         " >  Finding Uni-Directional Jumps in {} Execution Traces",
-        fs::read_dir(opts.trace_path)
+        fs::read_dir(&opts.trace_path)
             .expect("Reading directory contents failed")
             .count()
     );
-    for entry in fs::read_dir(opts.trace_path).expect("Reading directory contents failed") {
+    for entry in fs::read_dir(&opts.trace_path).expect("Reading directory contents failed") {
         let entry = entry.unwrap();
         let path = entry.path();
         if !path.is_dir() {
@@ -42,80 +45,83 @@ pub fn analyze_x86(opts: AnalysisOptions) -> Summary {
             let fd = File::open(curr_file).expect("Failed to open file");
             num_traces += 1;
 
-            for line in io::BufReader::new(fd).lines() {
-                if let Ok(l) = line {
-                    let addr = u64::from_str_radix(&l.trim_start_matches("0x"), 16).unwrap();
-                    let disas = cs
-                        .disasm_count(&opts.binary[(addr - opts.offset) as usize..], addr, 1)
-                        .unwrap();
+            for line in io::BufReader::new(fd).lines().map_while(Result::ok) {
+                if line.starts_with('#') || line.trim().is_empty() {
+                    // Ignore comments and empty lines.
+                    continue;
+                }
 
-                    // check target of last jump
-                    if last_jmp_addr != 0 {
-                        let last_jmp = jump_map.get_mut(&last_jmp_addr).unwrap();
-                        if last_jmp.taken == false && addr == last_jmp.target {
-                            last_jmp.taken = true;
-                        } else if last_jmp.not_taken == false && addr != last_jmp.target {
-                            last_jmp.not_taken = true;
-                        }
+                let addr = u64::from_str_radix(line.trim_start_matches("0x"), 16).unwrap();
+                let disas = cs
+                    .disasm_count(
+                        &opts.binary[usize::try_from(addr - opts.offset).unwrap()..],
+                        addr,
+                        1,
+                    )
+                    .unwrap();
 
-                        last_jmp_addr = 0;
+                // check target of last jump
+                if last_jmp_addr != 0 {
+                    let last_jmp = jump_map.get_mut(&last_jmp_addr).unwrap();
+                    if !last_jmp.taken && addr == last_jmp.target {
+                        last_jmp.taken = true;
+                    } else if !last_jmp.not_taken && addr != last_jmp.target {
+                        last_jmp.not_taken = true;
                     }
 
-                    let insn = disas.iter().next();
-                    let insn = match insn {
-                        Some(i) => i,
-                        None => {
-                            if ignore_list.contains(&addr) {
-                                continue;
-                            } else {
-                                println!("[!] Failed to disassemble at address {:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort", addr);
-                                let mut input = String::new();
-                                std::io::stdin()
-                                    .read_line(&mut input)
-                                    .expect("failed to read user input");
-                                input = input.to_lowercase();
-                                if &input[0..1] == "a" {
-                                    panic!();
-                                } else if &input[0..1] == "y" {
-                                    ignore_list.insert(addr);
-                                    continue;
-                                } else {
-                                    continue;
-                                }
-                            }
-                        }
-                    };
+                    last_jmp_addr = 0;
+                }
 
-                    if insn.id().0 >= X86Insn::X86_INS_JAE as u32
-                        && insn.id().0 <= X86Insn::X86_INS_JP as u32
-                    {
-                        // branch
-                        num_jumps += 1;
-                        let mnemonic = insn.mnemonic().unwrap();
+                let insn = disas.iter().next();
+                let Some(insn) = insn else {
+                    if ignore_list.contains(&addr) {
+                        continue;
+                    }
+                    println!("[!] Failed to disassemble at address {addr:#x}\n    Add to ignore list? [Y]es/[N]o/[A]bort");
+                    let mut input = String::new();
+                    std::io::stdin()
+                        .read_line(&mut input)
+                        .expect("failed to read user input");
+                    input = input.to_lowercase();
+                    if &input[0..1] == "a" {
+                        panic!();
+                    } else if &input[0..1] == "y" {
+                        ignore_list.insert(addr);
+                        continue;
+                    } else {
+                        continue;
+                    }
+                };
 
-                        // conditional branch
-                        if mnemonic != "jmp" {
-                            let t = u64::from_str_radix(
-                                insn.op_str().unwrap().split("0x").nth(1).unwrap().trim(),
-                                16,
-                            )
-                            .unwrap();
+                if insn.id().0 >= X86Insn::X86_INS_JAE as u32
+                    && insn.id().0 <= X86Insn::X86_INS_JP as u32
+                {
+                    // branch
+                    num_jumps += 1;
+                    let mnemonic = insn.mnemonic().unwrap();
 
-                            if !jump_map.contains_key(&addr) {
-                                let new_jmp = Jump {
-                                    taken: false,
-                                    not_taken: false,
-                                    condition: String::from(mnemonic.split("j").nth(1).unwrap()),
-                                    target: t,
-                                    insn_size: insn.bytes().len() as u8,
-                                    mode: 0,
-                                    pnc: 0,
-                                };
-                                jump_map.insert(addr, new_jmp);
-                            }
+                    // conditional branch
+                    if mnemonic != "jmp" {
+                        let t = u64::from_str_radix(
+                            insn.op_str().unwrap().split("0x").nth(1).unwrap().trim(),
+                            16,
+                        )
+                        .unwrap();
 
-                            last_jmp_addr = addr;
-                        }
+                        jump_map.entry(addr).or_insert_with(|| {
+                            let new_jmp = Jump {
+                                taken: false,
+                                not_taken: false,
+                                condition: String::from(mnemonic.split('j').nth(1).unwrap()),
+                                target: t,
+                                insn_size: u8::try_from(insn.bytes().len()).unwrap(),
+                                mode: 0,
+                                pnc: 0,
+                            };
+                            new_jmp
+                        });
+
+                        last_jmp_addr = addr;
                     }
                 }
             }
@@ -124,15 +130,13 @@ pub fn analyze_x86(opts: AnalysisOptions) -> Summary {
 
     let num_uniq_jumps = jump_map.len() as u64;
 
-    let result = Summary {
+    Summary {
         time: now.elapsed(),
-        num_traces: num_traces,
+        num_traces,
         total_jumps: num_jumps,
         unique_jumps: num_uniq_jumps,
         jumps: jump_map,
         // TODO: Add possible new coverage analysis support
         pnc: 0,
-    };
-
-    return result;
+    }
 }
