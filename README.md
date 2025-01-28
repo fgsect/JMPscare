@@ -20,5 +20,7 @@ For further information, please confer to the READMEs within each directory.
 
 ![JMPscare Binary Ninja Screenshot](./binja.png "Binary Ninja Plugin")
 
+## The Research Paper
+
 For further information, refer to our paper at BAR 2021, "JMPscare: Introspection for Binary-Only Fuzzing"
-Read the paper preprint with in-depth details [here](https://bar2021.moyix.net/bar2021-preprint3.pdf).
+Read the paper preprint with in-depth details [here](https://www.ndss-symposium.org/wp-content/uploads/bar2021_23003_paper.pdf).
